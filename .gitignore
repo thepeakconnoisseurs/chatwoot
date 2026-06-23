@@ -110,3 +110,6 @@ Procfile.worktree
 # Local docker-compose overrides and backups
 docker-compose.yaml
 docker-compose.yaml.save*
+
+# Local data volumes (e.g. postgres data dir)
+/data/postgres/
