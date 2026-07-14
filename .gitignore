@@ -99,6 +99,9 @@ yarn-debug.log*
 .agents/
 _bmad/
 CLAUDE.local.md
+.bmad-loop/
+_bmad-output/
+bun.lock
 
 # Histoire deployment
 .netlify
