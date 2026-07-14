@@ -113,3 +113,9 @@ docker-compose.yaml.save*
 
 # Local data volumes (e.g. postgres data dir)
 /data/postgres/
+
+# Local-only (persistent across branches)
+/docs/
+.bmad-loop/runs/
+.bmad-loop/cache/
+.bmad-loop/policy.toml
