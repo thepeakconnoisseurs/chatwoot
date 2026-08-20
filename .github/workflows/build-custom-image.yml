@@ -9,6 +9,11 @@ on:
     branches: [dev]
   workflow_dispatch:
 
+# Push baru otomatis membatalkan build lama yang masih jalan (hemat kuota)
+concurrency:
+  group: build-custom-image
+  cancel-in-progress: true
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -41,7 +46,9 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          platforms: linux/amd64 # server produksi x86_64 — JANGAN multi-arch (QEMU bikin lambat)
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: false
