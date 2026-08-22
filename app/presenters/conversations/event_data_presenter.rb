@@ -34,10 +34,14 @@ class Conversations::EventDataPresenter < SimpleDelegator
   def masked_contact_inbox(masked)
     return contact_inbox if contact_inbox.blank? || !masked || !Masking::ContactMasker.restricted?(Current.account_user)
 
-    source_id = Masking::ContactMasker.mask_source_id(contact_inbox.source_id)
-    # An in-memory persisted copy keeps the payload shape (and the record id for
-    # ActiveJob serialization) without mutating the shared association object.
-    ContactInbox.instantiate(contact_inbox.attributes.merge('source_id' => source_id))
+    # A plain hash (never the record itself) so ActiveJob's GlobalID round-trip
+    # cannot reload and rebroadcast the raw source_id.
+    {
+      id: contact_inbox.id,
+      inbox_id: contact_inbox.inbox_id,
+      contact_id: contact_inbox.contact_id,
+      source_id: Masking::ContactMasker.mask_source_id(contact_inbox.source_id)
+    }
   end
 
   def push_messages

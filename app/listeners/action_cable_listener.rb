@@ -1,3 +1,4 @@
+# rubocop:disable Metrics/ClassLength
 class ActionCableListener < BaseListener
   include Events::Types
 
@@ -41,17 +42,22 @@ class ActionCableListener < BaseListener
   def message_created(event)
     message, account = extract_message_and_account(event)
     conversation = message.conversation
-    tokens = user_tokens(account, conversation.inbox.members) + contact_tokens(conversation.contact_inbox, message)
+    agent_tokens = user_tokens(account, conversation.inbox.members)
+    contact_tokens = contact_tokens(conversation.contact_inbox, message)
 
-    broadcast(account, tokens, MESSAGE_CREATED, message.push_event_data)
+    broadcast_masked(account, agent_tokens, MESSAGE_CREATED) { message.push_event_data }
+    broadcast(account, contact_tokens, MESSAGE_CREATED, message.push_event_data(masked: false))
   end
 
   def message_updated(event)
     message, account = extract_message_and_account(event)
     conversation = message.conversation
-    tokens = user_tokens(account, conversation.inbox.members) + contact_tokens(conversation.contact_inbox, message)
+    agent_tokens = user_tokens(account, conversation.inbox.members)
+    contact_tokens = contact_tokens(conversation.contact_inbox, message)
 
-    broadcast(account, tokens, MESSAGE_UPDATED, message.push_event_data.merge(previous_changes: event.data[:previous_changes]))
+    broadcast_masked(account, agent_tokens, MESSAGE_UPDATED) { message.push_event_data.merge(previous_changes: event.data[:previous_changes]) }
+    broadcast(account, contact_tokens, MESSAGE_UPDATED,
+              message.push_event_data(masked: false).merge(previous_changes: event.data[:previous_changes]))
   end
 
   def first_reply_created(event)
@@ -59,35 +65,41 @@ class ActionCableListener < BaseListener
     conversation = message.conversation
     tokens = user_tokens(account, conversation.inbox.members)
 
-    broadcast(account, tokens, FIRST_REPLY_CREATED, message.push_event_data)
+    broadcast_masked(account, tokens, FIRST_REPLY_CREATED) { message.push_event_data }
   end
 
   def conversation_created(event)
     conversation, account = extract_conversation_and_account(event)
-    tokens = user_tokens(account, conversation.inbox.members) + contact_inbox_tokens(conversation.contact_inbox)
+    agent_tokens = user_tokens(account, conversation.inbox.members)
+    contact_tokens = contact_inbox_tokens(conversation.contact_inbox)
 
-    broadcast(account, tokens, CONVERSATION_CREATED, conversation.push_event_data)
+    broadcast_masked(account, agent_tokens, CONVERSATION_CREATED) { conversation.push_event_data }
+    broadcast(account, contact_tokens, CONVERSATION_CREATED, conversation.push_event_data(masked: false))
   end
 
   def conversation_read(event)
     conversation, account = extract_conversation_and_account(event)
     tokens = user_tokens(account, conversation.inbox.members)
 
-    broadcast(account, tokens, CONVERSATION_READ, conversation.push_event_data)
+    broadcast_masked(account, tokens, CONVERSATION_READ) { conversation.push_event_data }
   end
 
   def conversation_status_changed(event)
     conversation, account = extract_conversation_and_account(event)
-    tokens = user_tokens(account, conversation.inbox.members) + contact_inbox_tokens(conversation.contact_inbox)
+    agent_tokens = user_tokens(account, conversation.inbox.members)
+    contact_tokens = contact_inbox_tokens(conversation.contact_inbox)
 
-    broadcast(account, tokens, CONVERSATION_STATUS_CHANGED, conversation.push_event_data)
+    broadcast_masked(account, agent_tokens, CONVERSATION_STATUS_CHANGED) { conversation.push_event_data }
+    broadcast(account, contact_tokens, CONVERSATION_STATUS_CHANGED, conversation.push_event_data(masked: false))
   end
 
   def conversation_updated(event)
     conversation, account = extract_conversation_and_account(event)
-    tokens = user_tokens(account, conversation.inbox.members) + contact_inbox_tokens(conversation.contact_inbox)
+    agent_tokens = user_tokens(account, conversation.inbox.members)
+    contact_tokens = contact_inbox_tokens(conversation.contact_inbox)
 
-    broadcast(account, tokens, CONVERSATION_UPDATED, conversation.push_event_data)
+    broadcast_masked(account, agent_tokens, CONVERSATION_UPDATED) { conversation.push_event_data }
+    broadcast(account, contact_tokens, CONVERSATION_UPDATED, conversation.push_event_data(masked: false))
   end
 
   def conversation_unread_count_changed(event)
@@ -103,68 +115,58 @@ class ActionCableListener < BaseListener
     conversation = event.data[:conversation]
     account = conversation.account
     user = event.data[:user]
-    tokens = typing_event_listener_tokens(account, conversation, user)
+    agent_tokens = typing_agent_tokens(account, conversation, user)
+    contact_tokens = typing_contact_tokens(conversation, user)
 
-    broadcast(
-      account,
-      tokens,
-      CONVERSATION_TYPING_ON,
-      conversation: conversation.push_event_data,
-      user: user.push_event_data,
-      is_private: event.data[:is_private] || false
-    )
+    broadcast_masked(account, agent_tokens, CONVERSATION_TYPING_ON) { typing_payload(event, conversation, user, masked: true) }
+    broadcast(account, contact_tokens, CONVERSATION_TYPING_ON, typing_payload(event, conversation, user, masked: false))
   end
 
   def conversation_typing_off(event)
     conversation = event.data[:conversation]
     account = conversation.account
     user = event.data[:user]
-    tokens = typing_event_listener_tokens(account, conversation, user)
+    agent_tokens = typing_agent_tokens(account, conversation, user)
+    contact_tokens = typing_contact_tokens(conversation, user)
 
-    broadcast(
-      account,
-      tokens,
-      CONVERSATION_TYPING_OFF,
-      conversation: conversation.push_event_data,
-      user: user.push_event_data,
-      is_private: event.data[:is_private] || false
-    )
+    broadcast_masked(account, agent_tokens, CONVERSATION_TYPING_OFF) { typing_payload(event, conversation, user, masked: true) }
+    broadcast(account, contact_tokens, CONVERSATION_TYPING_OFF, typing_payload(event, conversation, user, masked: false))
   end
 
   def assignee_changed(event)
     conversation, account = extract_conversation_and_account(event)
     tokens = user_tokens(account, conversation.inbox.members)
 
-    broadcast(account, tokens, ASSIGNEE_CHANGED, conversation.push_event_data)
+    broadcast_masked(account, tokens, ASSIGNEE_CHANGED) { conversation.push_event_data }
   end
 
   def team_changed(event)
     conversation, account = extract_conversation_and_account(event)
     tokens = user_tokens(account, conversation.inbox.members)
 
-    broadcast(account, tokens, TEAM_CHANGED, conversation.push_event_data)
+    broadcast_masked(account, tokens, TEAM_CHANGED) { conversation.push_event_data }
   end
 
   def conversation_contact_changed(event)
     conversation, account = extract_conversation_and_account(event)
     tokens = user_tokens(account, conversation.inbox.members)
 
-    broadcast(account, tokens, CONVERSATION_CONTACT_CHANGED, conversation.push_event_data)
+    broadcast_masked(account, tokens, CONVERSATION_CONTACT_CHANGED) { conversation.push_event_data }
   end
 
   def contact_created(event)
     contact, account = extract_contact_and_account(event)
-    broadcast(account, [account_token(account)], CONTACT_CREATED, contact.push_event_data)
+    broadcast_masked(account, [account_token(account)], CONTACT_CREATED) { contact.push_event_data }
   end
 
   def contact_updated(event)
     contact, account = extract_contact_and_account(event)
-    broadcast(account, [account_token(account)], CONTACT_UPDATED, contact.push_event_data)
+    broadcast_masked(account, [account_token(account)], CONTACT_UPDATED) { contact.push_event_data }
   end
 
   def contact_merged(event)
     contact, account = extract_contact_and_account(event)
-    broadcast(account, [account_token(account)], CONTACT_MERGED, contact.push_event_data)
+    broadcast_masked(account, [account_token(account)], CONTACT_MERGED) { contact.push_event_data }
   end
 
   def contact_deleted(event)
@@ -172,14 +174,14 @@ class ActionCableListener < BaseListener
     account = Account.find_by(id: contact_data[:account_id])
     return if account.blank?
 
-    broadcast(account, [account_token(account)], CONTACT_DELETED, contact_data)
+    broadcast(account, [account_token(account)], CONTACT_DELETED, masked_contact_data(contact_data))
   end
 
   def conversation_mentioned(event)
     conversation, account = extract_conversation_and_account(event)
     user = event.data[:user]
 
-    broadcast(account, [user.pubsub_token], CONVERSATION_MENTIONED, conversation.push_event_data)
+    broadcast_masked(account, [user.pubsub_token], CONVERSATION_MENTIONED) { conversation.push_event_data }
   end
 
   private
@@ -188,15 +190,40 @@ class ActionCableListener < BaseListener
     "account_#{account.id}"
   end
 
-  def typing_event_listener_tokens(account, conversation, user)
-    current_user_token = if user.is_a?(Contact)
-                           conversation.contact_inbox.pubsub_token
-                         elsif user.respond_to?(:pubsub_token)
-                           user.pubsub_token
-                         end
+  # Agent-side tokens for typing events: the pubsub token of the typing user
+  # (when it is an agent) is excluded so the typer does not get their own echo.
+  def typing_agent_tokens(account, conversation, user)
+    tokens = user_tokens(account, conversation.inbox.members)
+    return tokens unless user.respond_to?(:pubsub_token) && !user.is_a?(Contact)
 
-    tokens = user_tokens(account, conversation.inbox.members) + [conversation.contact_inbox.pubsub_token]
-    current_user_token.present? ? tokens - [current_user_token] : tokens
+    tokens - [user.pubsub_token]
+  end
+
+  # Contact-side tokens for typing events: the contact inbox session only
+  # receives the echo when an agent is typing, never the contact itself.
+  def typing_contact_tokens(conversation, user)
+    return [] if user.is_a?(Contact)
+
+    [conversation.contact_inbox.pubsub_token]
+  end
+
+  def typing_payload(event, conversation, user, masked:)
+    {
+      conversation: conversation.push_event_data(masked: masked),
+      user: user.is_a?(Contact) ? user.push_event_data(masked: masked) : user.push_event_data,
+      is_private: event.data[:is_private] || false
+    }
+  end
+
+  # The payload sent to contact inbox sessions (widget visitors) must stay raw;
+  # everything else is masked via the builders that receive no viewer context.
+  def masked_contact_data(contact_data)
+    contact_data.merge(
+      email: Masking::ContactMasker.mask_email(contact_data[:email]),
+      identifier: Masking::ContactMasker.mask_source_id(contact_data[:identifier]),
+      name: Masking::ContactMasker.mask_name_if_phone(contact_data[:name]),
+      phone_number: Masking::ContactMasker.mask_phone(contact_data[:phone_number])
+    )
   end
 
   def user_tokens(account, agents)
@@ -229,6 +256,27 @@ class ActionCableListener < BaseListener
 
     ::ActionCableBroadcastJob.perform_later(tokens.uniq, event_name, payload)
   end
+
+  # Builds the broadcast payload without any viewer context. The sync dispatcher
+  # runs this listener inside the request thread, so the acting user's
+  # Current.account_user would otherwise leak raw contact data to every
+  # subscriber of the agent-facing tokens.
+  def broadcast_masked(account, tokens, event_name, &)
+    return if tokens.blank?
+
+    broadcast(account, tokens, event_name, with_no_viewer_context(&))
+  end
+
+  def with_no_viewer_context
+    previous_account_user = Current.account_user
+    Current.account_user = nil
+    begin
+      yield
+    ensure
+      Current.account_user = previous_account_user
+    end
+  end
 end
 
 ActionCableListener.prepend_mod_with('ActionCableListener')
+# rubocop:enable Metrics/ClassLength
