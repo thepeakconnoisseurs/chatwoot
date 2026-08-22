@@ -3,8 +3,13 @@ import { reactive, ref, computed, onMounted, watch } from 'vue';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useI18n } from 'vue-i18n';
 import { useUISettings } from 'dashboard/composables/useUISettings';
+import { useAccount } from 'dashboard/composables/useAccount';
 import { useAlert } from 'dashboard/composables';
 import { parseAPIErrorResponse } from 'dashboard/store/utils/api';
+import {
+  getUserPermissions,
+  getUserRole,
+} from 'dashboard/helper/permissionsHelper';
 import { ExceptionWithMessage } from 'shared/helpers/CustomErrors';
 import { debounce } from '@chatwoot/utils';
 import { emitter } from 'shared/helpers/mitt';
@@ -75,6 +80,20 @@ const inboxesList = useMapGetter('inboxes/getInboxes');
 const sendWithSignature = computed(() =>
   fetchSignatureFlagFromUISettings(targetInbox.value?.channelType)
 );
+
+const { accountId } = useAccount();
+
+// peakwine: custom-role agents whose role lacks the `contact_manage`
+// permission must not start new conversations — the compose flow submits a
+// contactable-inbox source_id they can no longer fetch.
+const canStartNewConversation = computed(() => {
+  if (getUserRole(currentUser.value, accountId.value) !== 'custom_role') {
+    return true;
+  }
+  return getUserPermissions(currentUser.value, accountId.value).includes(
+    'contact_manage'
+  );
+});
 
 const directUploadsEnabled = computed(
   () => globalConfig.value.directUploadsEnabled
@@ -239,8 +258,10 @@ watch(
 onMounted(() => resetContacts());
 </script>
 
+<!-- eslint-disable vue/no-root-v-if -->
 <template>
   <Popover
+    v-if="canStartNewConversation"
     ref="popoverRef"
     :align="align"
     :show-content-border="false"

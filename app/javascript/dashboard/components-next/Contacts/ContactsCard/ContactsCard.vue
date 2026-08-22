@@ -119,12 +119,16 @@ const handleUpdateContact = () => {
 
 // When the inline edit opens, fetch a fresh `contacts/show` response so the
 // form is seeded with unmasked values (role-aware) instead of the list copy.
+const isFetchingFresh = ref(false);
+
 const onClickExpand = async () => {
+  if (isFetchingFresh.value) return;
   if (props.isExpanded) {
     emit('toggle');
     contactData.value = getInitialContactData();
     return;
   }
+  isFetchingFresh.value = true;
   try {
     const freshContact = await store.dispatch('contacts/show', {
       id: props.id,
@@ -146,6 +150,8 @@ const onClickExpand = async () => {
     emit('toggle');
   } catch (error) {
     useAlert(t('CONTACTS_LAYOUT.CARD.EDIT_DETAILS_FORM.ERROR_MESSAGE'));
+  } finally {
+    isFetchingFresh.value = false;
   }
 };
 
@@ -250,6 +256,7 @@ const handleAvatarHover = isHovered => {
         variant="ghost"
         color="slate"
         size="xs"
+        :is-loading="isFetchingFresh"
         :class="{ 'rotate-180': isExpanded }"
         @click="onClickExpand"
       />

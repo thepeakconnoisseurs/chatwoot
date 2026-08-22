@@ -53,6 +53,7 @@ export default {
       showEditModal: false,
       isEditingName: false,
       editName: '',
+      freshName: '',
     };
   },
   computed: {
@@ -121,8 +122,21 @@ export default {
         return '';
       }
     },
-    startEditingName() {
-      this.editName = this.contact.name || '';
+    // The inline name edit is seeded from a fresh `contacts/show` response so
+    // the field holds the unmasked value (raw for authorized viewers) instead
+    // of a possibly-masked store copy picked up from websocket events.
+    async startEditingName() {
+      if (!this.contact.id) return;
+      try {
+        const freshContact = await this.$store.dispatch('contacts/show', {
+          id: this.contact.id,
+        });
+        this.editName = freshContact.name || '';
+        this.freshName = freshContact.name || '';
+      } catch (error) {
+        useAlert(this.$t('CONTACT_FORM.ERROR_MESSAGE'));
+        return;
+      }
       this.isEditingName = true;
       this.$nextTick(() => {
         this.$refs.nameInput?.focus();
@@ -132,7 +146,7 @@ export default {
       if (!this.isEditingName) return;
       this.isEditingName = false;
       const trimmed = this.editName.trim();
-      if (trimmed && trimmed !== this.contact.name) {
+      if (trimmed && trimmed !== this.freshName) {
         this.updateContactField({ name: trimmed });
       }
     },

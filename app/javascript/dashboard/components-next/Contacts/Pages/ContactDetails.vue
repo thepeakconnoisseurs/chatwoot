@@ -1,10 +1,11 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import camelcaseKeys from 'camelcase-keys';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 import { dynamicTime } from 'shared/helpers/timeHelper';
+import ContactAPI from 'dashboard/api/contacts';
 
 import Avatar from 'dashboard/components-next/avatar/Avatar.vue';
 import Button from 'dashboard/components-next/button/Button.vue';
@@ -44,22 +45,21 @@ const initialContactData = ref({});
 // Bumped when the form is re-seeded from a fresh `contacts/show` response so
 // the ContactsForm remounts and picks up the unmasked values.
 const formSeedVersion = ref(0);
+// Local fetch flag: flipping the global `isFetchingItem` here would unmount
+// this component mid-fetch through the parent's spinner gate.
+const isFetchingFresh = ref(false);
 
-const getInitialContactData = () => {
-  if (!props.selectedContact) return {};
-  return { ...props.selectedContact };
-};
+const isFreshDataLoaded = computed(() => Boolean(initialContactData.value?.id));
 
 // Re-fetch the contact on open so the edit form is seeded from a fresh
 // `contacts/show` response (unmasked for authorized viewers) instead of a
 // possibly-masked store copy picked up from websocket events.
 const fetchFreshContact = async () => {
   if (!props.selectedContact?.id) return;
+  isFetchingFresh.value = true;
   try {
-    const freshContact = await store.dispatch('contacts/show', {
-      id: props.selectedContact.id,
-    });
-    const freshData = camelcaseKeys(freshContact, {
+    const { data } = await ContactAPI.show(props.selectedContact.id);
+    const freshData = camelcaseKeys(data.payload, {
       deep: true,
       stopPaths: ['custom_attributes'],
     });
@@ -69,13 +69,22 @@ const fetchFreshContact = async () => {
     useAlert(t('CONTACTS_LAYOUT.CARD.EDIT_DETAILS_FORM.ERROR_MESSAGE'));
   } finally {
     initialContactData.value = JSON.parse(JSON.stringify(contactData.value));
+    isFetchingFresh.value = false;
   }
 };
 
-onMounted(async () => {
-  Object.assign(contactData.value, getInitialContactData());
-  await fetchFreshContact();
-});
+// Route changes reuse this component without remounting, so watch the
+// contact id to reseed the form and refetch a fresh copy.
+watch(
+  () => props.selectedContact?.id,
+  async id => {
+    if (!id) return;
+    contactData.value = { ...props.selectedContact };
+    initialContactData.value = {};
+    await fetchFreshContact();
+  },
+  { immediate: true }
+);
 
 const createdAt = computed(() => {
   return contactData.value?.createdAt
@@ -116,6 +125,7 @@ const buildUpdatePayload = () => {
 };
 
 const updateContact = async () => {
+  if (!isFreshDataLoaded.value) return;
   try {
     const payload = buildUpdatePayload();
     if (Object.keys(payload).length > 0) {
@@ -226,7 +236,7 @@ const handleAvatarDelete = async () => {
         :label="t('CONTACTS_LAYOUT.CARD.EDIT_DETAILS_FORM.UPDATE_BUTTON')"
         size="sm"
         :is-loading="isUpdating"
-        :disabled="isUpdating || isFormInvalid"
+        :disabled="isUpdating || isFormInvalid || !isFreshDataLoaded"
         @click="updateContact"
       />
     </div>

@@ -46,6 +46,7 @@ export default {
       name: '',
       phoneNumber: '',
       originalContact: null,
+      seedSnapshot: {},
       activeDialCode: '',
       avatarFile: null,
       avatarUrl: '',
@@ -117,6 +118,11 @@ export default {
         : '';
     },
   },
+  watch: {
+    'contact.id'() {
+      this.fetchContact();
+    },
+  },
   async mounted() {
     await this.fetchContact();
   },
@@ -138,9 +144,10 @@ export default {
         ? { id: selected.id, name: selected.name }
         : { id: '', name: '' };
     },
-    // Fetch a fresh copy from `contacts/show` when the edit form opens so the
-    // fields are seeded with the unmasked values (role-aware server response)
-    // instead of a possibly-masked store copy picked up from websockets.
+    // Fetch a fresh copy from `contacts/show` when the edit form opens (and
+    // whenever the underlying contact changes) so the fields are seeded with
+    // the unmasked values (role-aware server response) instead of a
+    // possibly-masked store copy picked up from websockets.
     async fetchContact() {
       if (!this.contact.id) {
         this.setContactObject();
@@ -169,29 +176,51 @@ export default {
         this.activeDialCode = `+${dialCode}`;
       }
     },
+    // A field is pristine while it is still empty or unchanged since the last
+    // seed, so a late fresh fetch never overwrites what the user already typed.
+    isPristineField(field) {
+      return !this[field] || this[field] === this.seedSnapshot[field];
+    },
     setContactObject(contact = this.contact) {
-      const { email: emailAddress, phone_number: phoneNumber, name } = contact;
+      const {
+        email: emailAddress,
+        phone_number: phoneNumber,
+        name,
+        thumbnail,
+      } = contact;
       const additionalAttributes = contact.additional_attributes || {};
 
-      this.name = name || '';
-      this.email = emailAddress || '';
-      this.phoneNumber = phoneNumber || '';
-      this.companyName = additionalAttributes.company_name || '';
-      this.country = {
-        id: additionalAttributes.country_code || '',
-        name:
-          additionalAttributes.country ||
-          this.$t('CONTACT_FORM.FORM.COUNTRY.SELECT_COUNTRY'),
+      const fields = {
+        name: name || '',
+        email: emailAddress || '',
+        phoneNumber: phoneNumber || '',
+        companyName: additionalAttributes.company_name || '',
+        city: additionalAttributes.city || '',
+        description: additionalAttributes.description || '',
+        avatarUrl: thumbnail || '',
       };
-      this.city = additionalAttributes.city || '';
-      this.description = additionalAttributes.description || '';
-      this.avatarUrl = contact.thumbnail || '';
+      Object.entries(fields).forEach(([field, value]) => {
+        if (this.isPristineField(field)) this[field] = value;
+      });
+
+      if (
+        this.country.id === '' ||
+        this.country.id === this.seedSnapshot.country?.id
+      ) {
+        this.country = {
+          id: additionalAttributes.country_code || '',
+          name:
+            additionalAttributes.country ||
+            this.$t('CONTACT_FORM.FORM.COUNTRY.SELECT_COUNTRY'),
+        };
+      }
+
       const {
         social_profiles: socialProfiles = {},
         screen_name: twitterScreenName,
         social_telegram_user_name: telegramUserName,
       } = additionalAttributes;
-      this.socialProfileUserNames = {
+      const socials = {
         twitter: socialProfiles.twitter || twitterScreenName || '',
         facebook: socialProfiles.facebook || '',
         linkedin: socialProfiles.linkedin || '',
@@ -199,6 +228,20 @@ export default {
         telegram: socialProfiles.telegram || telegramUserName || '',
         instagram: socialProfiles.instagram || '',
         tiktok: socialProfiles.tiktok || '',
+      };
+      Object.entries(socials).forEach(([key, value]) => {
+        if (
+          !this.socialProfileUserNames[key] ||
+          this.socialProfileUserNames[key] === this.seedSnapshot.socials?.[key]
+        ) {
+          this.socialProfileUserNames[key] = value;
+        }
+      });
+
+      this.seedSnapshot = {
+        ...fields,
+        country: { ...this.country },
+        socials: { ...this.socialProfileUserNames },
       };
     },
     getContactObject() {
@@ -208,12 +251,27 @@ export default {
           name: '',
         };
       }
+      const contactObject = { id: this.contact.id };
+      const original = this.originalContact;
+
+      // The fresh fetch has not landed yet: send only the basic fields the user
+      // explicitly typed and never a padded additional_attributes object.
+      if (!original) {
+        if (this.name) contactObject.name = this.name;
+        if (this.email) contactObject.email = this.email;
+        if (this.phoneNumber) {
+          contactObject.phone_number = this.setPhoneNumber;
+        }
+        if (this.avatarFile) {
+          contactObject.avatar = this.avatarFile;
+          contactObject.isFormData = true;
+        }
+        return contactObject;
+      }
+
       // Only send fields that actually changed compared to the fresh copy
       // fetched on edit-open, so masked display values can never be written back.
-      const original = this.originalContact || {};
       const originalAttributes = original.additional_attributes || {};
-      const contactObject = { id: this.contact.id };
-
       if (this.name !== (original.name || '')) {
         contactObject.name = this.name;
       }
@@ -224,22 +282,43 @@ export default {
         contactObject.phone_number = this.setPhoneNumber;
       }
 
-      const additionalAttributes = {
-        ...originalAttributes,
-        description: this.description,
-        company_name: this.companyName,
-        country_code: this.country.id,
-        country:
-          this.country.name ===
-          this.$t('CONTACT_FORM.FORM.COUNTRY.SELECT_COUNTRY')
-            ? ''
-            : this.country.name,
-        city: this.city,
-        social_profiles: {
-          ...(originalAttributes.social_profiles || {}),
-          ...this.socialProfileUserNames,
-        },
-      };
+      // Overlay only the attribute keys the form actually holds a value for
+      // (or that already existed), so an untouched save produces no diff.
+      const additionalAttributes = { ...originalAttributes };
+      const selectedCountry =
+        this.country.name ===
+        this.$t('CONTACT_FORM.FORM.COUNTRY.SELECT_COUNTRY')
+          ? ''
+          : this.country.name;
+      [
+        ['description', this.description],
+        ['company_name', this.companyName],
+        ['country_code', this.country.id],
+        ['country', selectedCountry],
+        ['city', this.city],
+      ].forEach(([key, value]) => {
+        if (
+          value ||
+          Object.prototype.hasOwnProperty.call(originalAttributes, key)
+        ) {
+          additionalAttributes[key] = value;
+        }
+      });
+
+      const originalSocials = originalAttributes.social_profiles || {};
+      const socials = { ...originalSocials };
+      Object.entries(this.socialProfileUserNames).forEach(([key, value]) => {
+        if (
+          value ||
+          Object.prototype.hasOwnProperty.call(originalSocials, key)
+        ) {
+          socials[key] = value;
+        }
+      });
+      if (JSON.stringify(socials) !== JSON.stringify(originalSocials)) {
+        additionalAttributes.social_profiles = socials;
+      }
+
       if (
         JSON.stringify(additionalAttributes) !==
         JSON.stringify(originalAttributes)
