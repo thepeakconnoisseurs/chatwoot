@@ -6,7 +6,7 @@ json.id resource.id
 json.name restricted ? Masking::ContactMasker.mask_name_if_phone(resource.name) : resource.name
 json.phone_number restricted ? Masking::ContactMasker.mask_phone(resource.phone_number) : resource.phone_number
 json.blocked resource.blocked
-json.identifier resource.identifier
+json.identifier restricted ? Masking::ContactMasker.mask_source_id(resource.identifier) : resource.identifier
 json.company_id resource.company_id if Current.account&.feature_enabled?('companies')
 json.thumbnail resource.avatar_url
 json.custom_attributes resource.custom_attributes

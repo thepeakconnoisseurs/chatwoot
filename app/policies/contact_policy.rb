@@ -30,6 +30,8 @@ class ContactPolicy < ApplicationPolicy
   end
 
   def contactable_inboxes?
+    return false if custom_role_without_contact_manage?
+
     true
   end
 
@@ -65,8 +67,7 @@ class ContactPolicy < ApplicationPolicy
   # 'contact_manage' permission must not be able to mutate contact records
   # (e.g. rename from the conversation contact panel).
   def custom_role_without_contact_manage?
-    @account_user&.role == 'agent' && @account_user.custom_role_id.present? &&
-      @account_user.custom_role.permissions.exclude?('contact_manage')
+    Masking::ContactMasker.restricted?(@account_user)
   end
 end
 

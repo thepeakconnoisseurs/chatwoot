@@ -18,33 +18,42 @@ module Masking::ContactMasker
 
     account_user.role == 'agent' &&
       account_user.custom_role_id.present? &&
-      account_user.custom_role.permissions.exclude?('contact_manage')
+      account_user.custom_role&.permissions.to_a.exclude?('contact_manage')
   end
 
   # --- transformer ---------------------------------------------------------
   def mask_phone(raw)
-    s = raw.to_s.strip
-    return s if s.blank?
+    return raw if raw.blank?
 
+    s = raw.to_s.strip
     prefix = s[0, PHONE_VISIBLE_PREFIX]
     "#{prefix}#{PHONE_STARS}"
   end
 
   def mask_email(raw)
+    return raw if raw.blank?
+
     s = raw.to_s.strip
-    return s if s.blank? || !s.include?('@')
+    return s unless s.include?('@')
 
     local, domain = s.split('@', 2)
     "#{local[0, EMAIL_VISIBLE_PREFIX]}#{EMAIL_STARS}@#{domain}"
   end
 
   def mask_name_if_phone(raw)
+    return raw if raw.blank?
+
     s = raw.to_s.strip
     s.match?(PHONE_LIKE) ? mask_phone(s) : s
   end
 
   def mask_source_id(raw)
+    return raw if raw.blank?
+
     s = raw.to_s.strip
-    s.match?(PHONE_LIKE) ? mask_phone(s) : s   # email-based source_id ikut dicek
+    return mask_email(s) if s.include?('@')
+    return mask_phone(s) if s.match?(PHONE_LIKE)
+
+    s
   end
 end

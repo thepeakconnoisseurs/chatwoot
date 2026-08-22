@@ -16,10 +16,10 @@ RSpec.describe Masking::ContactMasker do
       expect(described_class.mask_phone('  +628123456789  ')).to eq('+62812*****')
     end
 
-    it 'returns blank values as-is' do
-      expect(described_class.mask_phone(nil)).to eq('')
+    it 'returns nil and blank values as-is' do
+      expect(described_class.mask_phone(nil)).to be_nil
       expect(described_class.mask_phone('')).to eq('')
-      expect(described_class.mask_phone('   ')).to eq('')
+      expect(described_class.mask_phone('   ')).to eq('   ')
     end
   end
 
@@ -37,7 +37,7 @@ RSpec.describe Masking::ContactMasker do
     end
 
     it 'returns nil and blank values as-is' do
-      expect(described_class.mask_email(nil)).to eq('')
+      expect(described_class.mask_email(nil)).to be_nil
       expect(described_class.mask_email('')).to eq('')
     end
   end
@@ -56,7 +56,7 @@ RSpec.describe Masking::ContactMasker do
     end
 
     it 'returns nil as-is' do
-      expect(described_class.mask_name_if_phone(nil)).to eq('')
+      expect(described_class.mask_name_if_phone(nil)).to be_nil
     end
   end
 
@@ -65,11 +65,17 @@ RSpec.describe Masking::ContactMasker do
       expect(described_class.mask_source_id('6281234567890')).to eq('628123*****')
     end
 
-    it 'keeps non phone-like source ids (emails, uuids) untouched' do
-      expect(described_class.mask_source_id('someone@example.com')).to eq('someone@example.com')
+    it 'masks email-based source ids like an email' do
+      expect(described_class.mask_source_id('someone@example.com')).to eq('so***@example.com')
+    end
 
+    it 'keeps uuid-like source ids untouched' do
       uuid = SecureRandom.uuid
       expect(described_class.mask_source_id(uuid)).to eq(uuid)
+    end
+
+    it 'returns nil as-is' do
+      expect(described_class.mask_source_id(nil)).to be_nil
     end
   end
 
@@ -104,6 +110,14 @@ RSpec.describe Masking::ContactMasker do
       agent = create(:account_user, account: account, role: :agent, custom_role: custom_role)
 
       expect(described_class.restricted?(agent)).to be(false)
+    end
+
+    it 'treats a custom-role agent whose role record was deleted as restricted' do
+      custom_role = create(:custom_role, account: account, permissions: %w[conversation_manage])
+      agent = create(:account_user, account: account, role: :agent, custom_role: custom_role)
+      agent.update(custom_role_id: CustomRole.last.id + 1)
+
+      expect(described_class.restricted?(agent.reload)).to be(true)
     end
   end
 end

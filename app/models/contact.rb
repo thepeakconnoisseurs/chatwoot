@@ -205,6 +205,7 @@ class Contact < ApplicationRecord
     data[:name] = Masking::ContactMasker.mask_name_if_phone(data[:name])
     data[:phone_number] = Masking::ContactMasker.mask_phone(data[:phone_number])
     data[:email] = Masking::ContactMasker.mask_email(data[:email])
+    data[:identifier] = Masking::ContactMasker.mask_source_id(data[:identifier])
   end
 
   def ip_lookup

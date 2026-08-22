@@ -142,9 +142,9 @@ class Notification < ApplicationRecord
     sender = actor.try(:sender)
     return '' if sender.blank?
 
-    # Notifications are built in job context (no viewer), so contact names
-    # that look like phone numbers are always masked here.
-    return Masking::ContactMasker.mask_name_if_phone(sender.name) if sender.is_a?(Contact)
+    # Contact names that look like phone numbers are masked unless the current
+    # viewer is allowed to see contact data (job context has no viewer).
+    return Masking::ContactMasker.mask_name_if_phone(sender.name) if sender.is_a?(Contact) && Masking::ContactMasker.restricted?(Current.account_user)
 
     sender.name
   end
