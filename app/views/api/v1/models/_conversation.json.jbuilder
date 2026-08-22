@@ -5,7 +5,8 @@ json.uuid conversation.uuid
 json.created_at conversation.created_at.to_i
 json.contact do
   json.id conversation.contact.id
-  json.name conversation.contact.name
+  restricted = Masking::ContactMasker.restricted?(Current.account_user)
+  json.name restricted ? Masking::ContactMasker.mask_name_if_phone(conversation.contact.name) : conversation.contact.name
 end
 json.inbox do
   json.id conversation.inbox.id

@@ -66,7 +66,7 @@ class V2::Reports::DrilldownRecordSerializer
       id: conversation.id,
       display_id: conversation.display_id,
       contact_id: conversation.contact_id,
-      contact_name: conversation.contact&.name,
+      contact_name: masked_contact_name(conversation.contact),
       inbox_id: conversation.inbox_id,
       inbox_name: conversation.inbox&.name,
       assignee_id: conversation.assignee_id,
@@ -86,6 +86,13 @@ class V2::Reports::DrilldownRecordSerializer
       sender_name: message.sender&.try(:name),
       created_at: message.created_at.to_i
     }
+  end
+
+  def masked_contact_name(contact)
+    return if contact.blank?
+    return contact.name unless Masking::ContactMasker.restricted?(Current.account_user)
+
+    Masking::ContactMasker.mask_name_if_phone(contact.name)
   end
 
   def last_message_attributes(conversation)

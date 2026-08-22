@@ -64,11 +64,14 @@ class Api::V1::Accounts::Campaigns::AnalyticsController < Api::V1::Accounts::Bas
   end
 
   def recipient_payload(recipient)
+    restricted = Masking::ContactMasker.restricted?(Current.account_user)
+    contact = recipient.contact
+
     {
       contact: {
-        id: recipient.contact.id,
-        name: recipient.contact.name,
-        phone_number: recipient.contact.phone_number
+        id: contact.id,
+        name: restricted ? Masking::ContactMasker.mask_name_if_phone(contact.name) : contact.name,
+        phone_number: restricted ? Masking::ContactMasker.mask_phone(contact.phone_number) : contact.phone_number
       },
       status: recipient.status,
       message_content: recipient.message_content,

@@ -5,7 +5,10 @@ json.payload do
       conversation = applied_sla.conversation
       json.id conversation.display_id
       json.contact do
-        json.name conversation.contact.name if conversation.contact
+        if conversation.contact
+          restricted = Masking::ContactMasker.restricted?(Current.account_user)
+          json.name restricted ? Masking::ContactMasker.mask_name_if_phone(conversation.contact.name) : conversation.contact.name
+        end
       end
       json.labels conversation.cached_label_list
       json.assignee conversation.assignee.push_event_data if conversation.assignee

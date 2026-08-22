@@ -1,9 +1,10 @@
 json.additional_attributes resource.additional_attributes
 json.availability_status resource.availability_status
-json.email resource.email
+restricted = Masking::ContactMasker.restricted?(Current.account_user)
+json.email restricted ? Masking::ContactMasker.mask_email(resource.email) : resource.email
 json.id resource.id
-json.name resource.name
-json.phone_number resource.phone_number
+json.name restricted ? Masking::ContactMasker.mask_name_if_phone(resource.name) : resource.name
+json.phone_number restricted ? Masking::ContactMasker.mask_phone(resource.phone_number) : resource.phone_number
 json.blocked resource.blocked
 json.identifier resource.identifier
 json.company_id resource.company_id if Current.account&.feature_enabled?('companies')

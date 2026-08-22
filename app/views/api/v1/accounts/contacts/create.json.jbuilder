@@ -4,6 +4,8 @@ json.payload do
   end
   json.contact_inbox do
     json.inbox @contact_inbox&.inbox
-    json.source_id @contact_inbox&.source_id
+    restricted = Masking::ContactMasker.restricted?(Current.account_user)
+    source_id = @contact_inbox&.source_id
+    json.source_id restricted ? Masking::ContactMasker.mask_source_id(source_id) : source_id
   end
 end
