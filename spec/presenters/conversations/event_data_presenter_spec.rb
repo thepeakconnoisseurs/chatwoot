@@ -22,7 +22,12 @@ RSpec.describe Conversations::EventDataPresenter do
         labels: [],
         inbox_id: conversation.inbox_id,
         status: conversation.status,
-        contact_inbox: conversation.contact_inbox,
+        contact_inbox: {
+          id: conversation.contact_inbox.id,
+          inbox_id: conversation.contact_inbox.inbox_id,
+          contact_id: conversation.contact_inbox.contact_id,
+          source_id: Masking::ContactMasker.mask_source_id(conversation.contact_inbox.source_id)
+        },
         can_reply: conversation.can_reply?,
         channel: conversation.inbox.channel_type,
         timestamp: conversation.last_activity_at.to_i,

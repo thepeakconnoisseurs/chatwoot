@@ -200,6 +200,36 @@ RSpec.describe 'Applied SLAs API', type: :request do
         expect(body['meta']).to include('count' => 1)
       end
 
+      it 'masks phone-like contact names for restricted agents' do
+        # The endpoint is admin-gated today; exercise the renderer masking for a
+        # restricted viewer in case the access rule is ever relaxed.
+        # rubocop:disable RSpec/AnyInstance
+        allow_any_instance_of(Api::V1::Accounts::EnterpriseAccountsController).to receive(:check_admin_authorization?).and_return(true)
+        # rubocop:enable RSpec/AnyInstance
+        conversation2.contact.update!(name: '+6281234567890')
+        create(:applied_sla, sla_policy: sla_policy1, conversation: conversation2, sla_status: 'missed')
+        custom_role = create(:custom_role, account: account, permissions: %w[conversation_manage])
+        restricted_agent = create(:user, account: account, role: :agent)
+        restricted_agent.account_users.find_by!(account_id: account.id).update!(custom_role: custom_role)
+
+        get "/api/v1/accounts/#{account.id}/applied_slas",
+            headers: restricted_agent.create_new_auth_token
+        expect(response).to have_http_status(:success)
+        body = JSON.parse(response.body)
+        expect(body['payload'].first['conversation']['contact']['name']).to eq('+62812*****')
+      end
+
+      it 'keeps contact names raw for administrators' do
+        conversation2.contact.update!(name: '+6281234567890')
+        create(:applied_sla, sla_policy: sla_policy1, conversation: conversation2, sla_status: 'missed')
+
+        get "/api/v1/accounts/#{account.id}/applied_slas",
+            headers: administrator.create_new_auth_token
+        expect(response).to have_http_status(:success)
+        body = JSON.parse(response.body)
+        expect(body['payload'].first['conversation']['contact']['name']).to eq('+6281234567890')
+      end
+
       it 'excludes conversations with blocked contacts' do
         create(:applied_sla, sla_policy: sla_policy1, conversation: conversation1, sla_status: 'missed')
         create(:applied_sla, sla_policy: sla_policy1, conversation: conversation2, sla_status: 'missed')

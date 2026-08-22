@@ -90,6 +90,75 @@ describe('ContactForm', () => {
     expect(payload).not.toHaveProperty('name');
     expect(payload).not.toHaveProperty('email');
     expect(payload).not.toHaveProperty('phone_number');
+    expect(payload).not.toHaveProperty('additional_attributes');
+  });
+
+  it('refetches and reseeds when the contact prop changes (conversation switch)', async () => {
+    mocks.dispatch.mockResolvedValue(freshContact);
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    const otherContact = {
+      id: 99,
+      name: '+62899*****',
+      phone_number: '+62899*****',
+      email: 'ot***@gmail.com',
+      additional_attributes: {},
+      thumbnail: '',
+    };
+    const otherFresh = {
+      id: 99,
+      name: 'Other Person',
+      phone_number: '+6289988776655',
+      email: 'other.person@gmail.com',
+      additional_attributes: {},
+      thumbnail: '',
+    };
+    mocks.dispatch.mockResolvedValue(otherFresh);
+
+    await wrapper.setProps({ contact: otherContact });
+    await flushPromises();
+
+    expect(mocks.dispatch).toHaveBeenLastCalledWith('contacts/show', {
+      id: 99,
+    });
+    expect(wrapper.vm.name).toBe('Other Person');
+    expect(wrapper.vm.email).toBe('other.person@gmail.com');
+    expect(wrapper.vm.phoneNumber).toBe('+6289988776655');
+  });
+
+  it('does not overwrite fields the user already typed when the fresh fetch resolves', async () => {
+    let resolveFetch;
+    mocks.dispatch.mockReturnValue(
+      new Promise(resolve => {
+        resolveFetch = resolve;
+      })
+    );
+
+    const wrapper = mountComponent();
+    await wrapper.setData({ name: 'Typed Name' });
+
+    resolveFetch(freshContact);
+    await flushPromises();
+
+    expect(wrapper.vm.name).toBe('Typed Name');
+    expect(wrapper.vm.email).toBe('peakwine@gmail.com');
+    expect(wrapper.vm.phoneNumber).toBe('+6281234567890');
+  });
+
+  it('sends only explicitly typed basic fields when submitted before the fresh fetch resolves', async () => {
+    mocks.dispatch.mockReturnValue(new Promise(() => {}));
+
+    const wrapper = mountComponent();
+    await wrapper.setData({ name: 'Typed Only' });
+
+    await wrapper.vm.handleSubmit();
+
+    expect(mocks.onSubmit).toHaveBeenCalledTimes(1);
+    expect(mocks.onSubmit.mock.calls[0][0]).toEqual({
+      id: 42,
+      name: 'Typed Only',
+    });
   });
 
   it('aborts the edit and alerts when the fresh fetch fails, without sending a PATCH', async () => {

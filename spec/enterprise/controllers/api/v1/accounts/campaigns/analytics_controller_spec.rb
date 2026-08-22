@@ -70,5 +70,34 @@ RSpec.describe 'Campaign analytics API', type: :request do
       )
       expect(response.parsed_body['meta']).to include('current_page' => 1, 'total_pages' => 1, 'total_count' => 1)
     end
+
+    context 'when the viewer is a restricted agent' do
+      let(:restricted_agent) do
+        custom_role = create(:custom_role, account: account, permissions: %w[conversation_manage])
+        user = create(:user, account: account, role: :agent)
+        user.account_users.find_by!(account_id: account.id).update!(custom_role: custom_role)
+        user
+      end
+
+      before do
+        delivered_contact.update!(name: '+6281234567890')
+      end
+
+      it 'masks the contact name and phone number' do
+        # The campaign policy is admin-only today; exercise the payload masking
+        # for a restricted viewer in case the access rule is ever relaxed.
+        # rubocop:disable RSpec/AnyInstance
+        allow_any_instance_of(CampaignPolicy).to receive(:show?).and_return(true)
+        # rubocop:enable RSpec/AnyInstance
+        get "/api/v1/accounts/#{account.id}/campaigns/#{campaign.display_id}/analytics/contacts",
+            params: { status: 'delivered', page: 1 },
+            headers: restricted_agent.create_new_auth_token
+
+        expect(response).to have_http_status(:ok)
+        contact_payload = response.parsed_body['payload'].first['contact']
+        expect(contact_payload['name']).to eq('+62812*****')
+        expect(contact_payload['phone_number']).to eq(Masking::ContactMasker.mask_phone(delivered_contact.phone_number))
+      end
+    end
   end
 end

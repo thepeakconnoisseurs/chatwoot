@@ -697,7 +697,12 @@ RSpec.describe Conversation do
         last_activity_at: conversation.last_activity_at.to_i,
         inbox_id: conversation.inbox_id,
         status: conversation.status,
-        contact_inbox: conversation.contact_inbox,
+        contact_inbox: {
+          id: conversation.contact_inbox.id,
+          inbox_id: conversation.contact_inbox.inbox_id,
+          contact_id: conversation.contact_inbox.contact_id,
+          source_id: Masking::ContactMasker.mask_source_id(conversation.contact_inbox.source_id)
+        },
         timestamp: conversation.last_activity_at.to_i,
         can_reply: true,
         channel: 'Channel::WebWidget',
