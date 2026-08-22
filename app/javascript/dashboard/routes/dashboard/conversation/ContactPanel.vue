@@ -98,7 +98,7 @@ const contactAdditionalAttributes = computed(
 
 const getContactDetails = () => {
   if (contactId.value) {
-    store.dispatch('contacts/show', { id: contactId.value });
+    store.dispatch('contacts/show', { id: contactId.value }).catch(() => {});
   }
 };
 

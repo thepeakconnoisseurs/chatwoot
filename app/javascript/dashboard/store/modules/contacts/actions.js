@@ -111,10 +111,12 @@ export const actions = {
       commit(types.SET_CONTACT_UI_FLAG, {
         isFetchingItem: false,
       });
+      return response.data.payload;
     } catch (error) {
       commit(types.SET_CONTACT_UI_FLAG, {
         isFetchingItem: false,
       });
+      throw error;
     }
   },
 

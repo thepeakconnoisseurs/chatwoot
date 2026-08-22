@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import camelcaseKeys from 'camelcase-keys';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
 import { dynamicTime } from 'shared/helpers/timeHelper';
@@ -37,14 +38,43 @@ const isUpdating = computed(() => uiFlags.value.isUpdating);
 const isFormInvalid = computed(() => contactsFormRef.value?.isFormInvalid);
 
 const contactData = ref({});
+// Snapshot of the values the form was seeded with, used to send only
+// changed fields on update so masked display values are never written back.
+const initialContactData = ref({});
+// Bumped when the form is re-seeded from a fresh `contacts/show` response so
+// the ContactsForm remounts and picks up the unmasked values.
+const formSeedVersion = ref(0);
 
 const getInitialContactData = () => {
   if (!props.selectedContact) return {};
   return { ...props.selectedContact };
 };
 
-onMounted(() => {
+// Re-fetch the contact on open so the edit form is seeded from a fresh
+// `contacts/show` response (unmasked for authorized viewers) instead of a
+// possibly-masked store copy picked up from websocket events.
+const fetchFreshContact = async () => {
+  if (!props.selectedContact?.id) return;
+  try {
+    const freshContact = await store.dispatch('contacts/show', {
+      id: props.selectedContact.id,
+    });
+    const freshData = camelcaseKeys(freshContact, {
+      deep: true,
+      stopPaths: ['custom_attributes'],
+    });
+    Object.assign(contactData.value, freshData);
+    formSeedVersion.value += 1;
+  } catch (error) {
+    useAlert(t('CONTACTS_LAYOUT.CARD.EDIT_DETAILS_FORM.ERROR_MESSAGE'));
+  } finally {
+    initialContactData.value = JSON.parse(JSON.stringify(contactData.value));
+  }
+};
+
+onMounted(async () => {
   Object.assign(contactData.value, getInitialContactData());
+  await fetchFreshContact();
 });
 
 const createdAt = computed(() => {
@@ -67,10 +97,34 @@ const handleFormUpdate = updatedData => {
   Object.assign(contactData.value, updatedData);
 };
 
+const buildUpdatePayload = () => {
+  const payload = {};
+  const initial = initialContactData.value || {};
+  const fields = ['name', 'email', 'phoneNumber', 'companyId'];
+  fields.forEach(field => {
+    if (contactData.value[field] !== initial[field]) {
+      payload[field] = contactData.value[field];
+    }
+  });
+  if (
+    JSON.stringify(contactData.value.additionalAttributes) !==
+    JSON.stringify(initial.additionalAttributes)
+  ) {
+    payload.additionalAttributes = contactData.value.additionalAttributes;
+  }
+  return payload;
+};
+
 const updateContact = async () => {
   try {
-    const { customAttributes, ...basicContactData } = contactData.value;
-    await store.dispatch('contacts/update', basicContactData);
+    const payload = buildUpdatePayload();
+    if (Object.keys(payload).length > 0) {
+      await store.dispatch('contacts/update', {
+        id: props.selectedContact.id,
+        ...payload,
+      });
+      initialContactData.value = JSON.parse(JSON.stringify(contactData.value));
+    }
     await store.dispatch(
       'contacts/fetchContactableInbox',
       props.selectedContact.id
@@ -91,7 +145,7 @@ const handleAvatarUpload = async ({ file, url }) => {
 
   try {
     await store.dispatch('contacts/update', {
-      ...contactsFormRef.value?.state,
+      id: props.selectedContact.id,
       avatar: file,
       isFormData: true,
     });
@@ -162,6 +216,7 @@ const handleAvatarDelete = async () => {
     </div>
     <div class="flex flex-col items-start gap-6">
       <ContactsForm
+        :key="`contact-form-${formSeedVersion}`"
         ref="contactsFormRef"
         :contact-data="contactData"
         is-details-view

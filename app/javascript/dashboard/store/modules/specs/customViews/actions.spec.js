@@ -223,7 +223,7 @@ describe('#actions', () => {
     });
 
     it('prefetches the contact of a contact filter', async () => {
-      const dispatch = vi.fn();
+      const dispatch = vi.fn().mockResolvedValue({});
       await actions.setActiveConversationFolder(
         { commit, dispatch },
         contactFilterView

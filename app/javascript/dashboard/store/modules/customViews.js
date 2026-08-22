@@ -166,7 +166,10 @@ export const actions = {
     commit(types.SET_ACTIVE_CONVERSATION_FOLDER, data);
     // prefetch the contact of a contact filter so the UI can show its name
     const contactId = getFolderContactId(data);
-    if (contactId) dispatch('contacts/show', { id: contactId }, { root: true });
+    if (contactId)
+      dispatch('contacts/show', { id: contactId }, { root: true }).catch(
+        () => {}
+      );
   },
 };
 

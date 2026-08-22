@@ -66,11 +66,15 @@ const goToContactsList = () => {
 
 const fetchActiveContact = async () => {
   if (route.params.contactId) {
-    await store.dispatch('contacts/show', { id: route.params.contactId });
-    await store.dispatch(
-      'contacts/fetchContactableInbox',
-      route.params.contactId
-    );
+    try {
+      await store.dispatch('contacts/show', { id: route.params.contactId });
+      await store.dispatch(
+        'contacts/fetchContactableInbox',
+        route.params.contactId
+      );
+    } catch (error) {
+      useAlert(t('CONTACTS_LAYOUT.CARD.EDIT_DETAILS_FORM.ERROR_MESSAGE'));
+    }
   }
 };
 
@@ -106,7 +110,7 @@ const toggleContactBlock = async isBlocked => {
 
   try {
     await store.dispatch(`contacts/update`, {
-      ...selectedContact.value,
+      id: selectedContact.value.id,
       blocked: !isBlocked,
     });
     useAlert(

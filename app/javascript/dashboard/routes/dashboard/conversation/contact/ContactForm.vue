@@ -45,6 +45,7 @@ export default {
       email: '',
       name: '',
       phoneNumber: '',
+      originalContact: null,
       activeDialCode: '',
       avatarFile: null,
       avatarUrl: '',
@@ -116,14 +117,8 @@ export default {
         : '';
     },
   },
-  watch: {
-    contact() {
-      this.setContactObject();
-    },
-  },
-  mounted() {
-    this.setContactObject();
-    this.setDialCode();
+  async mounted() {
+    await this.fetchContact();
   },
   methods: {
     onCancel() {
@@ -143,6 +138,27 @@ export default {
         ? { id: selected.id, name: selected.name }
         : { id: '', name: '' };
     },
+    // Fetch a fresh copy from `contacts/show` when the edit form opens so the
+    // fields are seeded with the unmasked values (role-aware server response)
+    // instead of a possibly-masked store copy picked up from websockets.
+    async fetchContact() {
+      if (!this.contact.id) {
+        this.setContactObject();
+        this.setDialCode();
+        return;
+      }
+      try {
+        const freshContact = await this.$store.dispatch('contacts/show', {
+          id: this.contact.id,
+        });
+        this.originalContact = freshContact;
+        this.setContactObject(freshContact);
+        this.setDialCode();
+      } catch (error) {
+        useAlert(this.$t('CONTACT_FORM.ERROR_MESSAGE'));
+        this.onCancel();
+      }
+    },
     setDialCode() {
       if (
         this.phoneNumber !== '' &&
@@ -153,13 +169,9 @@ export default {
         this.activeDialCode = `+${dialCode}`;
       }
     },
-    setContactObject() {
-      const {
-        email: emailAddress,
-        phone_number: phoneNumber,
-        name,
-      } = this.contact;
-      const additionalAttributes = this.contact.additional_attributes || {};
+    setContactObject(contact = this.contact) {
+      const { email: emailAddress, phone_number: phoneNumber, name } = contact;
+      const additionalAttributes = contact.additional_attributes || {};
 
       this.name = name || '';
       this.email = emailAddress || '';
@@ -173,7 +185,7 @@ export default {
       };
       this.city = additionalAttributes.city || '';
       this.description = additionalAttributes.description || '';
-      this.avatarUrl = this.contact.thumbnail || '';
+      this.avatarUrl = contact.thumbnail || '';
       const {
         social_profiles: socialProfiles = {},
         screen_name: twitterScreenName,
@@ -196,25 +208,45 @@ export default {
           name: '',
         };
       }
-      const contactObject = {
-        id: this.contact.id,
-        name: this.name,
-        email: this.email,
-        phone_number: this.setPhoneNumber,
-        additional_attributes: {
-          ...this.contact.additional_attributes,
-          description: this.description,
-          company_name: this.companyName,
-          country_code: this.country.id,
-          country:
-            this.country.name ===
-            this.$t('CONTACT_FORM.FORM.COUNTRY.SELECT_COUNTRY')
-              ? ''
-              : this.country.name,
-          city: this.city,
-          social_profiles: this.socialProfileUserNames,
+      // Only send fields that actually changed compared to the fresh copy
+      // fetched on edit-open, so masked display values can never be written back.
+      const original = this.originalContact || {};
+      const originalAttributes = original.additional_attributes || {};
+      const contactObject = { id: this.contact.id };
+
+      if (this.name !== (original.name || '')) {
+        contactObject.name = this.name;
+      }
+      if (this.email !== (original.email || '')) {
+        contactObject.email = this.email;
+      }
+      if (this.phoneNumber !== (original.phone_number || '')) {
+        contactObject.phone_number = this.setPhoneNumber;
+      }
+
+      const additionalAttributes = {
+        ...originalAttributes,
+        description: this.description,
+        company_name: this.companyName,
+        country_code: this.country.id,
+        country:
+          this.country.name ===
+          this.$t('CONTACT_FORM.FORM.COUNTRY.SELECT_COUNTRY')
+            ? ''
+            : this.country.name,
+        city: this.city,
+        social_profiles: {
+          ...(originalAttributes.social_profiles || {}),
+          ...this.socialProfileUserNames,
         },
       };
+      if (
+        JSON.stringify(additionalAttributes) !==
+        JSON.stringify(originalAttributes)
+      ) {
+        contactObject.additional_attributes = additionalAttributes;
+      }
+
       if (this.avatarFile) {
         contactObject.avatar = this.avatarFile;
         contactObject.isFormData = true;

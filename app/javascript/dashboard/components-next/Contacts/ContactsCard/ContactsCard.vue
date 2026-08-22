@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import camelcaseKeys from 'camelcase-keys';
+import { useStore } from 'dashboard/composables/store';
+import { useAlert } from 'dashboard/composables';
 
 import CardLayout from 'dashboard/components-next/CardLayout.vue';
 import ContactsForm from 'dashboard/components-next/Contacts/ContactsForm/ContactsForm.vue';
@@ -35,6 +38,7 @@ const emit = defineEmits([
 ]);
 
 const { t } = useI18n();
+const store = useStore();
 
 const contactsFormRef = ref(null);
 
@@ -48,6 +52,12 @@ const getInitialContactData = () => ({
 });
 
 const contactData = ref(getInitialContactData());
+// Snapshot of the values the inline edit form was seeded with, used to send
+// only changed fields so masked display values are never written back.
+const initialContactData = ref({});
+// Bumped when the form is re-seeded from a fresh `contacts/show` response so
+// the ContactsForm remounts and picks up the unmasked values.
+const formSeedVersion = ref(0);
 
 const isFormInvalid = computed(() => contactsFormRef.value?.isFormInvalid);
 
@@ -88,13 +98,55 @@ const handleFormUpdate = updatedData => {
   Object.assign(contactData.value, updatedData);
 };
 
+// Sends only the fields that differ from the freshly-fetched copy so a
+// possibly-masked store copy can never be written back to the server.
 const handleUpdateContact = () => {
-  emit('updateContact', contactData.value);
+  const payload = { id: props.id };
+  const initial = initialContactData.value || {};
+  ['name', 'email', 'phoneNumber', 'companyId'].forEach(field => {
+    if (contactData.value[field] !== initial[field]) {
+      payload[field] = contactData.value[field];
+    }
+  });
+  if (
+    JSON.stringify(contactData.value.additionalAttributes) !==
+    JSON.stringify(initial.additionalAttributes)
+  ) {
+    payload.additionalAttributes = contactData.value.additionalAttributes;
+  }
+  emit('updateContact', payload);
 };
 
-const onClickExpand = () => {
-  emit('toggle');
-  contactData.value = getInitialContactData();
+// When the inline edit opens, fetch a fresh `contacts/show` response so the
+// form is seeded with unmasked values (role-aware) instead of the list copy.
+const onClickExpand = async () => {
+  if (props.isExpanded) {
+    emit('toggle');
+    contactData.value = getInitialContactData();
+    return;
+  }
+  try {
+    const freshContact = await store.dispatch('contacts/show', {
+      id: props.id,
+    });
+    const freshData = camelcaseKeys(freshContact, {
+      deep: true,
+      stopPaths: ['custom_attributes'],
+    });
+    contactData.value = {
+      id: freshData.id,
+      name: freshData.name || '',
+      email: freshData.email || '',
+      companyId: freshData.companyId || '',
+      phoneNumber: freshData.phoneNumber || '',
+      additionalAttributes: freshData.additionalAttributes || {},
+    };
+    initialContactData.value = JSON.parse(JSON.stringify(contactData.value));
+    formSeedVersion.value += 1;
+    emit('toggle');
+  } catch (error) {
+    useAlert(t('CONTACTS_LAYOUT.CARD.EDIT_DETAILS_FORM.ERROR_MESSAGE'));
+  }
 };
 
 const onClickViewDetails = () => emit('showContact', props.id);
@@ -214,6 +266,7 @@ const handleAvatarHover = isHovered => {
           <div class="overflow-hidden">
             <div class="flex flex-col gap-6 p-6 border-t border-n-strong">
               <ContactsForm
+                :key="`contact-form-${formSeedVersion}`"
                 ref="contactsFormRef"
                 :contact-data="contactData"
                 @update="handleFormUpdate"

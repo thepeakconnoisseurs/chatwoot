@@ -60,9 +60,17 @@ describe('#actions', () => {
         [types.SET_CONTACT_UI_FLAG, { isFetchingItem: false }],
       ]);
     });
-    it('sends correct mutations if API is error', async () => {
+    it('returns the fetched contact on success', async () => {
+      axios.get.mockResolvedValue({ data: { payload: contactList[0] } });
+      await expect(
+        actions.show({ commit }, { id: contactList[0].id })
+      ).resolves.toEqual(contactList[0]);
+    });
+    it('sends correct mutations and surfaces the error if API is error', async () => {
       axios.get.mockRejectedValue({ message: 'Incorrect header' });
-      await actions.show({ commit }, { id: contactList[0].id });
+      await expect(
+        actions.show({ commit }, { id: contactList[0].id })
+      ).rejects.toEqual({ message: 'Incorrect header' });
       expect(commit.mock.calls).toEqual([
         [types.SET_CONTACT_UI_FLAG, { isFetchingItem: true }],
         [types.SET_CONTACT_UI_FLAG, { isFetchingItem: false }],
