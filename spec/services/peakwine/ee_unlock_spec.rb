@@ -31,6 +31,29 @@ RSpec.describe Peakwine::EeUnlock do
     end
   end
 
+  describe '.active?' do
+    it 'is active in production with the kill-switch unset' do
+      allow(Rails.env).to receive(:production?).and_return(true)
+      with_modified_env PEAKWINE_EE_UNLOCK: nil do
+        expect(described_class.active?).to be true
+      end
+    end
+
+    it 'short-circuits the callbacks when the kill-switch is set' do
+      allow(Rails.env).to receive(:production?).and_return(true)
+      with_modified_env PEAKWINE_EE_UNLOCK: 'false' do
+        expect(described_class.active?).to be false
+      end
+    end
+
+    it 'short-circuits the callbacks outside production' do
+      allow(Rails.env).to receive(:production?).and_return(false)
+      with_modified_env PEAKWINE_EE_UNLOCK: nil do
+        expect(described_class.active?).to be false
+      end
+    end
+  end
+
   describe '.run_after_initialize!' do
     it 'applies the unlock when active' do
       allow(described_class).to receive(:active?).and_return(true)
