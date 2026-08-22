@@ -5,7 +5,7 @@
 # production or while PEAKWINE_EE_UNLOCK=false.
 
 Rails.application.config.after_initialize do
-  next unless Rails.env.production? && Peakwine::EeUnlock.enabled?
+  next unless Peakwine::EeUnlock.active?
 
   Peakwine::EeUnlock.apply!
 end
@@ -14,7 +14,7 @@ end
 # zz_* runs after 01_inject_enterprise_edition_module.rb, so this prepend lands
 # in front of the EE overlay and our perform wins.
 Rails.application.reloader.to_prepare do
-  next unless Rails.env.production? && Peakwine::EeUnlock.enabled?
+  next unless Peakwine::EeUnlock.active?
 
   Internal::CheckNewVersionsJob.prepend(Peakwine::EeUnlock::HUB_JOB_NO_OP)
 end

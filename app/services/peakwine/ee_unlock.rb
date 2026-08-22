@@ -41,6 +41,12 @@ module Peakwine::EeUnlock
     ENV.fetch('PEAKWINE_EE_UNLOCK', 'true').downcase != 'false'
   end
 
+  # Single gate used by both initializer callbacks: production-only and
+  # kill-switch in one predicate.
+  def active?
+    Rails.env.production? && enabled?
+  end
+
   # Heals plan/quantity/flags/branding. Returns true when something was written,
   # false when nothing changed or on error — boot must never fail because of the
   # unlock, errors are logged and swallowed.
