@@ -144,35 +144,44 @@ class Message < ApplicationRecord
     @token ||= inbox.channel.try(:page_access_token)
   end
 
-  def push_event_data
+  def push_event_data(masked: true)
     data = attributes.symbolize_keys.merge(
       created_at: created_at.to_i,
       message_type: message_type_before_type_cast,
       conversation_id: conversation&.display_id,
-      conversation: conversation.present? ? conversation_push_event_data : nil
+      conversation: conversation.present? ? conversation_push_event_data(masked: masked) : nil
     )
     data[:echo_id] = echo_id if echo_id.present?
     data[:attachments] = attachments.map(&:push_event_data) if attachments.present?
-    merge_sender_attributes(data)
+    merge_sender_attributes(data, masked: masked)
   end
 
-  def conversation_push_event_data
+  def conversation_push_event_data(masked: true)
+    source_id = conversation.contact_inbox.source_id
+    source_id = Masking::ContactMasker.mask_source_id(source_id) if masked && Masking::ContactMasker.restricted?(Current.account_user)
+
     {
       assignee_id: conversation.assignee_id,
       unread_count: conversation.unread_incoming_messages.count,
       last_activity_at: conversation.last_activity_at.to_i,
-      contact_inbox: { source_id: conversation.contact_inbox.source_id }
+      contact_inbox: { source_id: source_id }
     }
   end
 
-  def merge_sender_attributes(data)
-    data[:sender] = sender.push_event_data if sender && !sender.is_a?(AgentBot)
-    data[:sender] = sender.push_event_data(inbox) if sender.is_a?(AgentBot)
+  def merge_sender_attributes(data, masked: true)
+    data[:sender] = sender_push_event_data(masked: masked) if sender
     data
   end
 
+  def sender_push_event_data(masked: true)
+    return sender.push_event_data(inbox) if sender.is_a?(AgentBot)
+    return sender.push_event_data(masked: masked) if sender.is_a?(Contact)
+
+    sender&.push_event_data
+  end
+
   def webhook_push_event_data
-    push_event_data.merge(
+    push_event_data(masked: false).merge(
       content: Messages::WebhookContentNormalizer.normalize(content),
       processed_message_content: Messages::WebhookContentNormalizer.normalize(processed_message_content)
     )

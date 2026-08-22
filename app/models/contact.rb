@@ -40,6 +40,7 @@
 #
 
 # rubocop:enable Layout/LineLength
+# rubocop:disable Metrics/ClassLength
 
 class Contact < ApplicationRecord
   include Avatarable
@@ -147,7 +148,7 @@ class Contact < ApplicationRecord
     contact_inboxes.find_by!(inbox_id: inbox_id).source_id
   end
 
-  def push_event_data
+  def push_event_data(masked: true)
     data = {
       additional_attributes: additional_attributes,
       custom_attributes: custom_attributes,
@@ -161,6 +162,7 @@ class Contact < ApplicationRecord
       type: 'contact'
     }
     data[:company_id] = company_id if account.feature_enabled?('companies')
+    apply_push_event_masking(data) if masked
     data
   end
 
@@ -196,6 +198,14 @@ class Contact < ApplicationRecord
   end
 
   private
+
+  def apply_push_event_masking(data)
+    return unless Masking::ContactMasker.restricted?(Current.account_user)
+
+    data[:name] = Masking::ContactMasker.mask_name_if_phone(data[:name])
+    data[:phone_number] = Masking::ContactMasker.mask_phone(data[:phone_number])
+    data[:email] = Masking::ContactMasker.mask_email(data[:email])
+  end
 
   def ip_lookup
     return unless account.feature_enabled?('ip_lookup')
@@ -253,3 +263,4 @@ class Contact < ApplicationRecord
   end
 end
 Contact.include_mod_with('Concerns::Contact')
+# rubocop:enable Metrics/ClassLength

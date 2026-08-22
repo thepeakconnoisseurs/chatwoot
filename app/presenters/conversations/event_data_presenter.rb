@@ -1,15 +1,15 @@
 class Conversations::EventDataPresenter < SimpleDelegator
-  def push_data
+  def push_data(masked: true)
     {
       additional_attributes: additional_attributes,
       can_reply: can_reply?,
       channel: inbox.try(:channel_type),
-      contact_inbox: contact_inbox,
+      contact_inbox: masked_contact_inbox(masked),
       id: display_id,
       inbox_id: inbox_id,
       messages: push_messages,
       labels: label_list,
-      meta: push_meta,
+      meta: push_meta(masked),
       status: status,
       custom_attributes: custom_attributes,
       snoozed_until: snoozed_until,
@@ -23,13 +23,22 @@ class Conversations::EventDataPresenter < SimpleDelegator
 
   # Like #push_data but with message text normalized for external integrations (webhooks).
   def webhook_data
-    push_data.merge(
+    push_data(masked: false).merge(
       account: account.webhook_data,
       messages: webhook_push_messages
     )
   end
 
   private
+
+  def masked_contact_inbox(masked)
+    return contact_inbox if contact_inbox.blank? || !masked || !Masking::ContactMasker.restricted?(Current.account_user)
+
+    source_id = Masking::ContactMasker.mask_source_id(contact_inbox.source_id)
+    # An in-memory persisted copy keeps the payload shape (and the record id for
+    # ActiveJob serialization) without mutating the shared association object.
+    ContactInbox.instantiate(contact_inbox.attributes.merge('source_id' => source_id))
+  end
 
   def push_messages
     [messages.where(account_id: account_id).chat.last&.push_event_data].compact
@@ -39,9 +48,9 @@ class Conversations::EventDataPresenter < SimpleDelegator
     [messages.where(account_id: account_id).chat.last&.webhook_push_event_data].compact
   end
 
-  def push_meta
+  def push_meta(masked)
     {
-      sender: contact.push_event_data,
+      sender: contact.push_event_data(masked: masked),
       assignee: assigned_entity&.push_event_data,
       assignee_type: assignee_type,
       team: team&.push_event_data,

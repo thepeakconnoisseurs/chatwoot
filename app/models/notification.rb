@@ -139,7 +139,14 @@ class Notification < ApplicationRecord
   end
 
   def sender_name(actor)
-    actor.try(:sender)&.name || ''
+    sender = actor.try(:sender)
+    return '' if sender.blank?
+
+    # Notifications are built in job context (no viewer), so contact names
+    # that look like phone numbers are always masked here.
+    return Masking::ContactMasker.mask_name_if_phone(sender.name) if sender.is_a?(Contact)
+
+    sender.name
   end
 
   def message_content(actor)
