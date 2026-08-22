@@ -24,6 +24,8 @@ class ContactPolicy < ApplicationPolicy
   end
 
   def update?
+    return false if custom_role_without_contact_manage?
+
     true
   end
 
@@ -32,6 +34,8 @@ class ContactPolicy < ApplicationPolicy
   end
 
   def destroy_custom_attributes?
+    return false if custom_role_without_contact_manage?
+
     true
   end
 
@@ -40,15 +44,29 @@ class ContactPolicy < ApplicationPolicy
   end
 
   def create?
+    return false if custom_role_without_contact_manage?
+
     true
   end
 
   def avatar?
+    return false if custom_role_without_contact_manage?
+
     true
   end
 
   def destroy?
     @account_user.administrator?
+  end
+
+  private
+
+  # peakwine local patch: a custom-role agent whose role lacks the
+  # 'contact_manage' permission must not be able to mutate contact records
+  # (e.g. rename from the conversation contact panel).
+  def custom_role_without_contact_manage?
+    @account_user&.role == 'agent' && @account_user.custom_role_id.present? &&
+      @account_user.custom_role.permissions.exclude?('contact_manage')
   end
 end
 
