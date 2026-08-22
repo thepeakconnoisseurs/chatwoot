@@ -1,18 +1,17 @@
 # frozen_string_literal: true
 
-# peakwine: self-healing Enterprise unlock.
-# Enforces the plan config and every premium feature flag on each boot so any
-# reset (hub sync job, refresh button, manual edit, new image pull) is healed at
-# the next restart. Kill-switch: PEAKWINE_EE_UNLOCK=false (env) + restart.
+# peakwine: self-healing Enterprise unlock — enforces plan/quantity/premium
+# flags on every boot (any reset heals at the next restart) and clears the
+# stale reset-warning banner the no-op'd reconcile job can no longer remove.
+# Kill-switch: PEAKWINE_EE_UNLOCK=false (env) + restart.
 module Peakwine::EeUnlock
   PLAN = 'enterprise'
   PLAN_CONFIG_NAME = 'INSTALLATION_PRICING_PLAN'
   QUANTITY_CONFIG_NAME = 'INSTALLATION_PRICING_PLAN_QUANTITY'
   QUANTITY_FLOOR = 100
   # ALL premium flags (config/features.yml, 18 entries) — without exception.
-  # channel_voice per user decision 2026-08-23: the flag being ON does not make
-  # Chatwoot receive calls by itself — real calls still depend on the WABA /
-  # telephony channel configuration in the provider dashboard.
+  # channel_voice (user 2026-08-23): flag ON alone cannot receive calls; real
+  # calls still need WABA/telephony channel config in the provider dashboard.
   FLAGS = %i[
     advanced_assignment advanced_search advanced_search_indexing audit_logs
     captain_document_auto_sync captain_integration captain_integration_v2
@@ -26,9 +25,8 @@ module Peakwine::EeUnlock
 
   LOCK = Mutex.new
 
-  # Prepended onto Internal::CheckNewVersionsJob (above the EE overlay) so every
-  # perform path — cron, /super_admin/settings refresh button, manual enqueue —
-  # stops here: no hub ping, no plan write, no reconcile.
+  # Prepended onto Internal::CheckNewVersionsJob (above the EE overlay): every
+  # perform path — cron, refresh button, manual enqueue — stops here.
   HUB_JOB_NO_OP = Module.new do
     def perform
       Rails.logger.info('peakwine ee_unlock: Internal::CheckNewVersionsJob skipped (hub plan sync disabled)')
@@ -37,33 +35,69 @@ module Peakwine::EeUnlock
 
   module_function
 
+  # Shared guard for both boot callbacks: production-only + kill-switch.
+  def active?
+    Rails.env.production? && enabled?
+  end
+
   def enabled?
     ENV.fetch('PEAKWINE_EE_UNLOCK', 'true').downcase != 'false'
   end
 
-  # Single gate used by both initializer callbacks: production-only and
-  # kill-switch in one predicate.
-  def active?
-    Rails.env.production? && enabled?
+  # Boot callback bodies — the initializer only registers these one-liners.
+  def run_after_initialize!
+    return unless active?
+
+    apply!
+  end
+
+  def run_to_prepare!
+    return unless active?
+
+    Internal::CheckNewVersionsJob.prepend(HUB_JOB_NO_OP)
   end
 
   # Heals plan/quantity/flags/branding. Returns true when something was written,
   # false when nothing changed or on error — boot must never fail because of the
   # unlock, errors are logged and swallowed.
   def apply!
+    return false unless database_reachable?
+
     changed = false
 
     LOCK.synchronize do
-      changed = enforce_plan_config
-      changed |= enforce_account_flags
-      changed |= enforce_branding_snapshot
+      changed |= run_step(:enforce_plan_config)
+      changed |= run_step(:enforce_account_flags)
+      changed |= run_step(:enforce_branding_snapshot)
     end
 
+    # the reset-warning banner is normally removed by the reconcile job we
+    # neutralized above — clear it on every successful pass, healed or not
+    Redis::Alfred.delete(Redis::Alfred::CHATWOOT_INSTALLATION_CONFIG_RESET_WARNING)
     GlobalConfig.clear_cache if changed
     Rails.logger.info("peakwine ee_unlock: applied=#{changed} plan=#{PLAN} flags=#{FLAGS.size}")
     changed
   rescue StandardError => e
     Rails.logger.error("peakwine ee_unlock: apply! failed (#{e.class}: #{e.message}); boot continues")
+    false
+  end
+
+  # Fresh install / assets:precompile boots without a DB — skip quietly instead
+  # of flooding the log with error-level noise from the generic rescue.
+  def database_reachable?
+    ActiveRecord::Base.connection
+    true
+  rescue StandardError => e
+    Rails.logger.info("peakwine ee_unlock: skipped (database unavailable: #{e.class})")
+    false
+  end
+
+  # One failing step (bad row, unique-index race against a concurrently booting
+  # container) must not skip the remaining steps for this boot.
+  def run_step(step)
+    public_send(step)
+  rescue StandardError => e
+    Rails.logger.error("peakwine ee_unlock: #{step} failed (#{e.class}: #{e.message}); continuing")
     false
   end
 
@@ -88,12 +122,19 @@ module Peakwine::EeUnlock
 
   def enforce_account_flags
     wrote = false
+    # intersect with Featurable's defined names so an upstream flag rename can
+    # never make enable_features! raise for the whole run
+    healable = FLAGS & Featurable::FEATURE_LIST.pluck('name').map(&:to_sym)
     Account.find_each do |account|
-      missing = FLAGS - account.enabled_features.keys.map(&:to_sym)
+      missing = healable - account.enabled_features.keys.map(&:to_sym)
       next if missing.empty?
 
-      account.enable_features!(*missing)
-      wrote = true
+      begin
+        persisted = account.enable_features!(*missing)
+        persisted ? wrote = true : Rails.logger.error("peakwine ee_unlock: saving flags failed for account #{account.id}")
+      rescue StandardError => e
+        Rails.logger.error("peakwine ee_unlock: account #{account.id} flags not applied (#{e.class}: #{e.message}); continuing")
+      end
     end
     wrote
   end

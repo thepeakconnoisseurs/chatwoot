@@ -92,6 +92,7 @@ Metrics/ModuleLength:
   Exclude:
     - lib/seeders/message_seeder.rb
     - spec/support/slack_stubs.rb
+    - app/services/peakwine/ee_unlock.rb
 
 Rails/HelperInstanceVariable:
   Exclude:
