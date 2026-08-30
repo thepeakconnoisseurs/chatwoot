@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import camelcaseKeys from 'camelcase-keys';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
-import { dynamicTime } from 'shared/helpers/timeHelper';
+import { dynamicTime, exactTimestamp } from 'shared/helpers/timeHelper';
 import ContactAPI from 'dashboard/api/contacts';
 
 import Avatar from 'dashboard/components-next/avatar/Avatar.vue';
@@ -212,13 +212,29 @@ const handleAvatarDelete = async () => {
               v-if="selectedContact?.identifier"
               class="i-ph-activity text-n-slate-10 size-4"
             />
-            {{ $t('CONTACTS_LAYOUT.DETAILS.CREATED_AT', { date: createdAt }) }}
+            <span
+              v-tooltip.top="{
+                content: exactTimestamp(contactData?.createdAt),
+                delay: { show: 500, hide: 0 },
+              }"
+            >
+              {{
+                $t('CONTACTS_LAYOUT.DETAILS.CREATED_AT', { date: createdAt })
+              }}
+            </span>
             •
-            {{
-              $t('CONTACTS_LAYOUT.DETAILS.LAST_ACTIVITY', {
-                date: lastActivityAt,
-              })
-            }}
+            <span
+              v-tooltip.top="{
+                content: exactTimestamp(contactData?.lastActivityAt),
+                delay: { show: 500, hide: 0 },
+              }"
+            >
+              {{
+                $t('CONTACTS_LAYOUT.DETAILS.LAST_ACTIVITY', {
+                  date: lastActivityAt,
+                })
+              }}
+            </span>
           </span>
         </div>
       </div>
