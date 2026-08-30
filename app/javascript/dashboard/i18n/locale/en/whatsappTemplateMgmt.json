@@ -18,6 +18,18 @@
     "PARTIAL_FETCH_ERROR": "Some WhatsApp templates could not be loaded. Please try again.",
     "LAST_SYNC_ATTEMPT": "Last sync attempt on {date}",
     "MORE_INBOXES": "+{n}",
+    "ROLES": {
+      "ADMIN_ONLY": "Admin only",
+      "NO_ROLES": "No custom roles found",
+      "APPLIES_TO_ALL_INBOXES": "Applies to every inbox that has this template",
+      "SAVE": "Save",
+      "CANCEL": "Cancel",
+      "SAVE_SUCCESS": "Template access updated.",
+      "SAVE_ERROR": "Unable to save template access. Please try again.",
+      "SAVE_SKIPPED": "Template access was saved, but {n} inbox(es) could not be loaded and were left unchanged. Reload the page and try again to update them.",
+      "FETCH_ERROR": "Some template access settings could not be loaded. Please try again.",
+      "ORPHAN_COUNT": "{n} stale assignment(s) for templates that no longer exist on WhatsApp. Saving a template with no roles removes them."
+    },
     "STATUSES": {
       "UNSUBMITTED": "Not submitted for WhatsApp approval"
     },

@@ -42,6 +42,9 @@ class Api::V1::Accounts::ConversationsController < Api::V1::Accounts::BaseContro
       @conversation = ConversationBuilder.new(params: params, contact_inbox: @contact_inbox).perform
       Messages::MessageBuilder.new(Current.user, @conversation, params[:message]).perform if params[:message].present?
     end
+  rescue Peakwine::TemplateAccess::Denied => e
+    # fork: restrict-waba-templates — 422 (bukan 500), rollback transaction → tidak ada conversation yatim
+    render_could_not_create_error(e.message)
   end
 
   def update

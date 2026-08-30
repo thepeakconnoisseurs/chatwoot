@@ -23,6 +23,8 @@ module Api::V1::Accounts::Concerns::WhatsappHealthManagement
 
     templates, last_sync_attempt_at, name_key = message_template_data
     templates = templates.select { |template| template[name_key] == params[:name] } if params[:name].present?
+    # fork: restrict-waba-templates — Cloud WA only (concern juga melayani Twilio, F18; docs/brief/restrict-waba-templates.md §6 T3)
+    templates = Peakwine::TemplateAccess.filter_templates(Current.account_user, @inbox, templates) if @inbox.whatsapp?
 
     render json: {
       payload: templates,

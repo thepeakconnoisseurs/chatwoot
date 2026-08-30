@@ -22,6 +22,12 @@ class Messages::MessageBuilder
   end
 
   def perform
+    # fork: restrict-waba-templates — tolak template tanpa izin (lihat docs/brief/restrict-waba-templates.md §6 T5)
+    Peakwine::TemplateAccess.enforce_send!(
+      @user, @conversation,
+      @params[:template_params] || @params.dig(:message, :template_params),
+      automation: @automation_rule.present?
+    )
     @message = @conversation.messages.build(message_params)
     process_attachments
     process_emails

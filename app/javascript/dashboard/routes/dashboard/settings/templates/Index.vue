@@ -9,6 +9,7 @@ import { useMapGetter, useStore } from 'dashboard/composables/store';
 import { useAbortableRequest } from 'dashboard/composables/useAbortableRequest';
 import { INBOX_TYPES, TWILIO_CHANNEL_MEDIUM } from 'dashboard/helper/inbox';
 import InboxesAPI from 'dashboard/api/inboxes';
+import TemplatePermissionsAPI from 'dashboard/api/templatePermissions';
 import Button from 'dashboard/components-next/button/Button.vue';
 import DropdownMenu from 'dashboard/components-next/dropdown-menu/DropdownMenu.vue';
 import Icon from 'dashboard/components-next/icon/Icon.vue';
@@ -50,6 +51,12 @@ const previewPanelRef = ref(null);
 const templateRecordsByInboxId = new Map();
 const lastSyncAttemptsByInboxId = ref({});
 const isSyncing = ref(false);
+// fork: restrict-waba-templates — ACL state (§6 T7)
+const customRoles = useMapGetter('customRole/getCustomRoles');
+const roleIdsByInboxAndName = ref({});
+const permissionsPayloadByInboxId = ref({});
+const orphanNamesByInboxId = ref({});
+const isSavingRoles = ref(false);
 const {
   run: runTemplateRequest,
   abort: abortTemplateRequest,
@@ -86,6 +93,11 @@ const whatsappInboxes = computed(() =>
       (inbox.channel_type === INBOX_TYPES.TWILIO &&
         inbox.medium === TWILIO_CHANNEL_MEDIUM.WHATSAPP)
   )
+);
+
+// fork: restrict-waba-templates — Cloud WhatsApp only (Twilio WA out of scope)
+const cloudWhatsappInboxes = computed(() =>
+  inboxes.value.filter(inbox => inbox.channel_type === INBOX_TYPES.WHATSAPP)
 );
 
 const inboxOptions = computed(() => [
@@ -327,7 +339,126 @@ const syncTemplates = async () => {
   isSyncing.value = false;
 };
 
-onActivated(fetchTemplates);
+// fork: restrict-waba-templates — load ACL per Cloud inbox (parallel GET),
+// keep the raw payload per inbox (PUT is replace-all) + orphan names.
+const fetchTemplatePermissions = async () => {
+  try {
+    const didFetchInboxes = await store.dispatch('inboxes/get');
+    if (!didFetchInboxes) throw new Error();
+
+    const responses = await Promise.allSettled(
+      cloudWhatsappInboxes.value.map(inbox =>
+        TemplatePermissionsAPI.get(inbox.id)
+      )
+    );
+
+    const nextRoleIds = {};
+    const nextPayloads = {};
+    const nextOrphans = {};
+    responses.forEach((response, index) => {
+      if (response.status !== 'fulfilled') return;
+
+      const inboxId = cloudWhatsappInboxes.value[index].id;
+      const payload = response.value.data.payload || [];
+      nextPayloads[inboxId] = payload;
+      nextRoleIds[inboxId] = {};
+      payload.forEach(entry => {
+        nextRoleIds[inboxId][entry.template_name] = entry.role_ids || [];
+      });
+      nextOrphans[inboxId] = response.value.data.meta?.orphan_names || [];
+    });
+    roleIdsByInboxAndName.value = nextRoleIds;
+    permissionsPayloadByInboxId.value = nextPayloads;
+    orphanNamesByInboxId.value = nextOrphans;
+
+    if (responses.some(response => response.status === 'rejected')) {
+      useAlert(t('WHATSAPP_TEMPLATE_MGMT.ROLES.FETCH_ERROR'));
+    }
+  } catch {
+    useAlert(t('WHATSAPP_TEMPLATE_MGMT.ROLES.FETCH_ERROR'));
+  }
+};
+
+const orphanAssignmentCount = computed(() => {
+  const names = new Set();
+  Object.values(orphanNamesByInboxId.value).forEach(namesForInbox => {
+    namesForInbox.forEach(name => names.add(name));
+  });
+  return names.size;
+});
+
+// MVP (brief §6 T7 / E4): union across inboxes holding the template — saving
+// applies the chosen set to every one of those inboxes.
+const selectedRoleIdsForTemplate = template => {
+  const union = new Set();
+  template.inboxes
+    .filter(inbox => inbox.channel_type === INBOX_TYPES.WHATSAPP)
+    .forEach(inbox => {
+      (roleIdsByInboxAndName.value[inbox.id]?.[template.name] || []).forEach(
+        roleId => union.add(roleId)
+      );
+    });
+  return [...union];
+};
+
+const handleSaveRoles = async ({ template, roleIds }) => {
+  if (isSavingRoles.value) return;
+
+  const targetInboxes = template.inboxes.filter(
+    inbox => inbox.channel_type === INBOX_TYPES.WHATSAPP
+  );
+  // Never PUT a blind [] — an inbox whose GET failed has no stored payload and
+  // a replace-all [] would wipe every assignment on it. Skip and warn instead.
+  const inboxesToSave = targetInboxes.filter(
+    inbox => permissionsPayloadByInboxId.value[inbox.id]
+  );
+  const skippedCount = targetInboxes.length - inboxesToSave.length;
+
+  if (!inboxesToSave.length) {
+    useAlert(t('WHATSAPP_TEMPLATE_MGMT.ROLES.SAVE_ERROR'));
+    return;
+  }
+
+  isSavingRoles.value = true;
+  try {
+    const responses = await Promise.allSettled(
+      inboxesToSave.map(inbox => {
+        const entries = permissionsPayloadByInboxId.value[inbox.id].map(
+          entry => ({
+            template_name: entry.template_name,
+            role_ids:
+              entry.template_name === template.name
+                ? roleIds
+                : entry.role_ids || [],
+          })
+        );
+        return TemplatePermissionsAPI.replace(inbox.id, entries);
+      })
+    );
+
+    if (responses.some(response => response.status === 'rejected')) {
+      useAlert(t('WHATSAPP_TEMPLATE_MGMT.ROLES.SAVE_ERROR'));
+    } else if (skippedCount) {
+      useAlert(
+        t('WHATSAPP_TEMPLATE_MGMT.ROLES.SAVE_SKIPPED', { n: skippedCount })
+      );
+    } else {
+      useAlert(t('WHATSAPP_TEMPLATE_MGMT.ROLES.SAVE_SUCCESS'));
+    }
+    // Re-fetch so the UI reflects server state after partial failures too.
+    await fetchTemplatePermissions();
+  } catch {
+    useAlert(t('WHATSAPP_TEMPLATE_MGMT.ROLES.SAVE_ERROR'));
+  } finally {
+    isSavingRoles.value = false;
+  }
+};
+
+onActivated(() => {
+  fetchTemplates();
+  store.dispatch('customRole/getCustomRole');
+  fetchTemplatePermissions();
+});
 onDeactivated(abortTemplateRequest);
 </script>
 
@@ -363,6 +494,17 @@ onDeactivated(abortTemplateRequest);
             {{
               $t('WHATSAPP_TEMPLATE_MGMT.LAST_SYNC_ATTEMPT', {
                 date: formatTemplateDate(lastSyncAttemptAt),
+              })
+            }}
+          </span>
+          <!-- fork: restrict-waba-templates — stale assignment awareness (§6 T7) -->
+          <span
+            v-if="orphanAssignmentCount"
+            class="block mt-1 text-xs text-n-amber-11"
+          >
+            {{
+              $t('WHATSAPP_TEMPLATE_MGMT.ROLES.ORPHAN_COUNT', {
+                n: orphanAssignmentCount,
               })
             }}
           </span>
@@ -431,7 +573,11 @@ onDeactivated(abortTemplateRequest);
           v-for="template in filteredTemplates"
           :key="template.key"
           :template="template"
+          :roles="customRoles"
+          :selected-role-ids="selectedRoleIdsForTemplate(template)"
+          :is-saving-roles="isSavingRoles"
           @preview="openPreview(template)"
+          @save-roles="handleSaveRoles"
         />
       </div>
     </template>

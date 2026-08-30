@@ -314,6 +314,10 @@ Rails.application.routes.draw do
             resource :csat_template, only: [:show, :create], controller: 'inbox_csat_templates' do
               post :analyze, on: :collection
             end
+
+            # fork: restrict-waba-templates — admin-only ACL CRUD per inbox (docs/brief/restrict-waba-templates.md §6 T6)
+            resource :template_permissions, only: %i[show update],
+                     controller: 'peakwine/template_permissions'
           end
 
           resources :inbox_members, only: [:create, :show], param: :inbox_id do

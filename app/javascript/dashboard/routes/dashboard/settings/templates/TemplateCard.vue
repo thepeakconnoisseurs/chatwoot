@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 
 import Button from 'dashboard/components-next/button/Button.vue';
 import ChannelIcon from 'dashboard/components-next/icon/ChannelIcon.vue';
+import TemplateRolesSelector from './TemplateRolesSelector.vue';
 import {
   formatTemplateLabel,
   formatTemplateLanguage,
@@ -16,9 +17,21 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  roles: {
+    type: Array,
+    default: () => [],
+  },
+  selectedRoleIds: {
+    type: Array,
+    default: () => [],
+  },
+  isSavingRoles: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(['preview']);
+const emit = defineEmits(['preview', 'saveRoles']);
 const { t } = useI18n();
 
 const showStatus = computed(
@@ -77,16 +90,26 @@ const statusLabel = computed(() =>
         </div>
       </div>
     </div>
-    <Button
-      v-tooltip.top="$t('WHATSAPP_TEMPLATE_MGMT.PREVIEW.TITLE')"
-      icon="i-lucide-eye"
-      color="slate"
-      size="sm"
-      class="shrink-0"
-      :aria-label="
-        $t('WHATSAPP_TEMPLATE_MGMT.PREVIEW.OPEN', { name: template.name })
-      "
-      @click.stop="emit('preview')"
-    />
+    <div class="flex items-center shrink-0 gap-2">
+      <!-- fork: restrict-waba-templates — per-template custom role assignment (§6 T7) -->
+      <TemplateRolesSelector
+        :template="template"
+        :roles="roles"
+        :selected-role-ids="selectedRoleIds"
+        :is-saving="isSavingRoles"
+        @save="payload => emit('saveRoles', payload)"
+      />
+      <Button
+        v-tooltip.top="$t('WHATSAPP_TEMPLATE_MGMT.PREVIEW.TITLE')"
+        icon="i-lucide-eye"
+        color="slate"
+        size="sm"
+        class="shrink-0"
+        :aria-label="
+          $t('WHATSAPP_TEMPLATE_MGMT.PREVIEW.OPEN', { name: template.name })
+        "
+        @click.stop="emit('preview')"
+      />
+    </div>
   </div>
 </template>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_14_000000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_31_000000) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -1322,6 +1322,19 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_14_000000) do
     t.index ["user_id"], name: "index_notifications_on_user_id"
   end
 
+  create_table "peakwine_template_permissions", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "inbox_id", null: false
+    t.string "template_name", null: false
+    t.bigint "custom_role_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "custom_role_id"], name: "index_peakwine_template_permissions_on_account_id_and_custom_role_id"
+    t.index ["account_id"], name: "index_peakwine_template_permissions_on_account_id"
+    t.index ["inbox_id", "template_name", "custom_role_id"], name: "idx_peakwine_tp_on_inbox_template_role", unique: true
+    t.index ["inbox_id"], name: "index_peakwine_template_permissions_on_inbox_id"
+  end
+
   create_table "platform_app_permissibles", force: :cascade do |t|
     t.bigint "platform_app_id", null: false
     t.string "permissible_type", null: false
@@ -1597,6 +1610,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_14_000000) do
   add_foreign_key "campaign_recipients", "contacts", on_delete: :cascade
   add_foreign_key "campaign_recipients", "inboxes", on_delete: :cascade
   add_foreign_key "inboxes", "portals"
+  add_foreign_key "peakwine_template_permissions", "accounts", on_delete: :cascade
+  add_foreign_key "peakwine_template_permissions", "custom_roles", on_delete: :cascade
+  add_foreign_key "peakwine_template_permissions", "inboxes", on_delete: :cascade
   add_foreign_key "user_sessions", "users"
   create_trigger("accounts_after_insert_row_tr", :generated => true, :compatibility => 1).
       on("accounts").

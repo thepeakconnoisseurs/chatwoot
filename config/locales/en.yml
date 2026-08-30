@@ -74,6 +74,8 @@ en:
       cannot_revoke_current: You cannot revoke the current session.
 
   errors:
+    # fork: restrict-waba-templates — deny message for Peakwine::TemplateAccess (docs/brief/restrict-waba-templates.md §5)
+    whatsapp_template_access_denied: You do not have access to this WhatsApp template
     account:
       not_authorized: You are not authorized to access this account
       email_limit_exceeded: The daily email limit for this account has been reached

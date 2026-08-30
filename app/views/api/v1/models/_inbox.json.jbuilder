@@ -142,7 +142,10 @@ json.bot_name resource.channel.try(:bot_name) if resource.telegram?
 ### WhatsApp Channel
 if resource.whatsapp?
   message_templates = resource.channel.try(:message_templates)
-  json.message_templates message_templates.is_a?(Array) ? message_templates : []
+  message_templates = message_templates.is_a?(Array) ? message_templates : []
+  # fork: restrict-waba-templates — daftar hanya yang di-assign ke role viewer (docs/brief/restrict-waba-templates.md §6 T2)
+  message_templates = Peakwine::TemplateAccess.filter_templates(Current.account_user, resource, message_templates)
+  json.message_templates message_templates
   json.provider_config resource.channel.try(:provider_config) if Current.account_user&.administrator?
   if Current.account_user&.administrator? &&
      ChatwootApp.chatwoot_cloud? &&
