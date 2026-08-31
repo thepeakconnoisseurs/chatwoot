@@ -12,6 +12,12 @@ RSpec.describe Peakwine::TemplatePermission do
   end
   let(:inbox) { channel.inbox }
 
+  # Regression guard: namespaced models guess table_name WITHOUT the module
+  # prefix (demodulize) — production bug 2026-08-31 (PG::UndefinedTable).
+  it 'uses the prefixed peakwine table' do
+    expect(described_class.table_name).to eq('peakwine_template_permissions')
+  end
+
   describe 'validations' do
     it 'is valid with an account, a Cloud WA inbox, a template name and an account role' do
       permission = described_class.new(

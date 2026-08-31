@@ -6,6 +6,11 @@
 # Penegakan akses TIDAK lewat model ini — semua cek lewat Peakwine::TemplateAccess.
 module Peakwine
   class TemplatePermission < ApplicationRecord
+    # Namespaced model menebak table_name dari demodulize ("template_permissions")
+    # tanpa prefix module — sedangkan migrasi membuat peakwine_template_permissions.
+    # WAJIB eksplisit (bug produksi 2026-08-31: PG::UndefinedTable di semua query ACL).
+    self.table_name = 'peakwine_template_permissions'
+
     belongs_to :account
     belongs_to :inbox
 
