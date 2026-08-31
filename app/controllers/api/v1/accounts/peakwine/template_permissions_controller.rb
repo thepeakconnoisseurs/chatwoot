@@ -6,6 +6,8 @@
 #   PUT  ... (replace-all atomik per inbox, 204)
 # Otorisasi: check_admin_authorization? (dengan `?` — F17) → raise Pundit::NotAuthorizedError,
 # dirender 401 oleh RequestExceptionHandler (render_unauthorized).
+# Konstanta model WAJIB prefix `::` — namespace controller ini (Api::V1::Accounts::Peakwine)
+# membuat `Peakwine::...` resolve relatif ke namespace sendiri → NameError (insiden 2026-08-31).
 module Api
   module V1
     module Accounts
@@ -15,7 +17,7 @@ module Api
           before_action :inbox
 
           def show
-            rows = Peakwine::TemplatePermission.for_inbox(inbox).order(:template_name)
+            rows = ::Peakwine::TemplatePermission.for_inbox(inbox).order(:template_name)
             role_ids_by_name = rows.group_by(&:template_name).transform_values { |group| group.map(&:custom_role_id).sort }
 
             @payload = channel_template_names.map { |name| { template_name: name, role_ids: role_ids_by_name[name] || [] } }
@@ -34,10 +36,10 @@ module Api
             end
 
             ActiveRecord::Base.transaction do
-              Peakwine::TemplatePermission.for_inbox(inbox).delete_all
+              ::Peakwine::TemplatePermission.for_inbox(inbox).delete_all
               entries.each do |entry|
                 entry[:role_ids].each do |role_id|
-                  Peakwine::TemplatePermission.create!(
+                  ::Peakwine::TemplatePermission.create!(
                     account: Current.account,
                     inbox: inbox,
                     template_name: entry[:template_name],
