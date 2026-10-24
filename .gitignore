@@ -120,3 +120,7 @@ docker-compose.yaml.save*
 .bmad-loop/
 _bmad-output/
 bun.lock
+.nodeterm/project.json
+
+# Cache that `rake ruby_llm:refresh_models` writes next to the model registry
+config/llm_models.json.published.json
