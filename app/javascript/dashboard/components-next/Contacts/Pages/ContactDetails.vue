@@ -4,9 +4,9 @@ import { useI18n } from 'vue-i18n';
 import camelcaseKeys from 'camelcase-keys';
 import { useStore, useMapGetter } from 'dashboard/composables/store';
 import { useAlert } from 'dashboard/composables';
-import { dynamicTime, exactTimestamp } from 'shared/helpers/timeHelper';
+import { dynamicTime } from 'shared/helpers/timeHelper';
+import { useExactTimestamp } from 'shared/composables/useExactTimestamp';
 import ContactAPI from 'dashboard/api/contacts';
-
 import Avatar from 'dashboard/components-next/avatar/Avatar.vue';
 import Button from 'dashboard/components-next/button/Button.vue';
 import ContactLabels from 'dashboard/components-next/Contacts/ContactLabels/ContactLabels.vue';
@@ -22,6 +22,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['goToContactsList']);
+
+const exactTimestamp = useExactTimestamp();
 
 const { t } = useI18n();
 const store = useStore();
@@ -132,10 +134,14 @@ const updateContact = async () => {
       await store.dispatch('contacts/update', {
         id: props.selectedContact.id,
         ...payload,
+        resolveLegacyCompany: true,
       });
+      Object.assign(
+        contactData.value,
+        store.getters['contacts/getContactById'](props.selectedContact.id)
+      );
       initialContactData.value = JSON.parse(JSON.stringify(contactData.value));
-    }
-    await store.dispatch(
+    }    await store.dispatch(
       'contacts/fetchContactableInbox',
       props.selectedContact.id
     );

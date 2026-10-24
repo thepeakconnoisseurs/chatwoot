@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import camelcaseKeys from 'camelcase-keys';
 import { useStore } from 'dashboard/composables/store';
@@ -58,6 +58,11 @@ const initialContactData = ref({});
 // Bumped when the form is re-seeded from a fresh `contacts/show` response so
 // the ContactsForm remounts and picks up the unmasked values.
 const formSeedVersion = ref(0);
+
+watch(
+  () => props.companyId,
+  () => Object.assign(contactData.value, getInitialContactData())
+);
 
 const isFormInvalid = computed(() => contactsFormRef.value?.isFormInvalid);
 

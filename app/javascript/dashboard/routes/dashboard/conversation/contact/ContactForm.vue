@@ -12,12 +12,16 @@ import parsePhoneNumber from 'libphonenumber-js';
 import NextButton from 'dashboard/components-next/button/Button.vue';
 import Avatar from 'next/avatar/Avatar.vue';
 import ComboBox from 'dashboard/components-next/combobox/ComboBox.vue';
+import CompanySelector from 'dashboard/components-next/Companies/CompanySelector.vue';
+import { FEATURE_FLAGS } from 'dashboard/featureFlags';
+import { mapGetters } from 'vuex';
 
 export default {
   components: {
     NextButton,
     Avatar,
     ComboBox,
+    CompanySelector,
   },
   props: {
     contact: {
@@ -41,6 +45,7 @@ export default {
     return {
       countries: countries,
       companyName: '',
+      companyId: '',
       description: '',
       email: '',
       name: '',
@@ -68,6 +73,7 @@ export default {
         { key: 'linkedin', prefixURL: 'https://linkedin.com/' },
         { key: 'github', prefixURL: 'https://github.com/' },
         { key: 'telegram', prefixURL: 'https://t.me/' },
+        { key: 'whatsapp', prefixURL: '@' },
         { key: 'tiktok', prefixURL: 'https://tiktok.com/@' },
       ],
     };
@@ -85,6 +91,15 @@ export default {
     bio: {},
   },
   computed: {
+    ...mapGetters({
+      isFeatureEnabledOnAccount: 'accounts/isFeatureEnabledonAccount',
+    }),
+    hasCompaniesFeature() {
+      return this.isFeatureEnabledOnAccount(
+        Number(this.$route.params.accountId),
+        FEATURE_FLAGS.COMPANIES
+      );
+    },
     parsePhoneNumber() {
       return parsePhoneNumber(this.phoneNumber);
     },
@@ -127,6 +142,9 @@ export default {
     await this.fetchContact();
   },
   methods: {
+    normalizeWhatsAppUsername(value) {
+      return value?.toString().replace(/^@+/, '') || '';
+    },
     onCancel() {
       this.$emit('cancel');
     },
@@ -166,6 +184,10 @@ export default {
         this.onCancel();
       }
     },
+    onCompanySelect({ id, name }) {
+      this.companyId = id;
+      this.companyName = name;
+    },
     setDialCode() {
       if (
         this.phoneNumber !== '' &&
@@ -195,6 +217,7 @@ export default {
         email: emailAddress || '',
         phoneNumber: phoneNumber || '',
         companyName: additionalAttributes.company_name || '',
+        companyId: contact.company_id || '',
         city: additionalAttributes.city || '',
         description: additionalAttributes.description || '',
         avatarUrl: thumbnail || '',
@@ -219,6 +242,7 @@ export default {
         social_profiles: socialProfiles = {},
         screen_name: twitterScreenName,
         social_telegram_user_name: telegramUserName,
+        social_whatsapp_user_name: whatsappUserName,
       } = additionalAttributes;
       const socials = {
         twitter: socialProfiles.twitter || twitterScreenName || '',
@@ -228,6 +252,9 @@ export default {
         telegram: socialProfiles.telegram || telegramUserName || '',
         instagram: socialProfiles.instagram || '',
         tiktok: socialProfiles.tiktok || '',
+        whatsapp: this.normalizeWhatsAppUsername(
+          socialProfiles.whatsapp || whatsappUserName || ''
+        ),
       };
       Object.entries(socials).forEach(([key, value]) => {
         if (
@@ -265,6 +292,10 @@ export default {
         if (this.avatarFile) {
           contactObject.avatar = this.avatarFile;
           contactObject.isFormData = true;
+        }
+        if (this.hasCompaniesFeature && this.companyId) {
+          contactObject.company_id = this.companyId;
+          contactObject.resolve_legacy_company = true;
         }
         return contactObject;
       }
@@ -308,6 +339,7 @@ export default {
       const originalSocials = originalAttributes.social_profiles || {};
       const socials = { ...originalSocials };
       Object.entries(this.socialProfileUserNames).forEach(([key, value]) => {
+        if (key === 'whatsapp') value = this.normalizeWhatsAppUsername(value);
         if (
           value ||
           Object.prototype.hasOwnProperty.call(originalSocials, key)
@@ -326,6 +358,14 @@ export default {
         contactObject.additional_attributes = additionalAttributes;
       }
 
+      // Company selector: kirim hanya kalau berubah vs fresh copy (semangat masking diff-only)
+      if (
+        this.hasCompaniesFeature &&
+        this.companyId !== (original.company_id || '')
+      ) {
+        contactObject.company_id = this.companyId;
+        contactObject.resolve_legacy_company = true;
+      }
       if (this.avatarFile) {
         contactObject.avatar = this.avatarFile;
         contactObject.isFormData = true;
@@ -480,7 +520,16 @@ export default {
         </div>
       </div>
     </div>
+    <div v-if="hasCompaniesFeature" class="w-full mb-4">
+      <label>{{ $t('CONTACT_FORM.FORM.COMPANY_NAME.LABEL') }}</label>
+      <CompanySelector
+        :model-value="companyId"
+        :selected-name="companyName"
+        @select="onCompanySelect"
+      />
+    </div>
     <woot-input
+      v-else
       v-model="companyName"
       class="w-full"
       :label="$t('CONTACT_FORM.FORM.COMPANY_NAME.LABEL')"
