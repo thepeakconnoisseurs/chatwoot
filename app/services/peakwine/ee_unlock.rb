@@ -26,10 +26,14 @@ module Peakwine::EeUnlock
   LOCK = Mutex.new
 
   # Prepended onto Internal::CheckNewVersionsJob (above the EE overlay): every
-  # perform path — cron, refresh button, manual enqueue — stops here.
+  # perform path — cron, refresh button, manual enqueue — stops here. The
+  # signature absorbs any arguments: upstream v4.20.1 added `refresh_billing:`
+  # and the Super Admin refresh button calls perform_now(refresh_billing: true),
+  # then redirects on the returned value (nil would read as a failed refresh).
   HUB_JOB_NO_OP = Module.new do
-    def perform
+    def perform(*)
       Rails.logger.info('peakwine ee_unlock: Internal::CheckNewVersionsJob skipped (hub plan sync disabled)')
+      true
     end
   end
 

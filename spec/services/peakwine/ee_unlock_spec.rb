@@ -237,5 +237,22 @@ RSpec.describe Peakwine::EeUnlock do
       expect { job_class.new.perform }.not_to raise_error
       expect(Rails.logger).to have_received(:info).with(/skipped/)
     end
+
+    it 'absorbs the refresh button argument and reports success without reaching the hub' do
+      job_class = Class.new(Internal::CheckNewVersionsJob)
+      job_class.prepend(described_class::HUB_JOB_NO_OP)
+      allow(Rails.env).to receive(:production?).and_return(true)
+      allow(Rails.logger).to receive(:info)
+
+      expect(ChatwootHub).not_to receive(:sync_with_hub)
+      expect(InstallationConfig).not_to receive(:find_or_initialize_by)
+
+      # The Super Admin refresh button path: perform_now(refresh_billing: true).
+      expect { job_class.perform_now(refresh_billing: true) }.not_to raise_error
+      expect(job_class.perform_now(refresh_billing: true)).to be(true)
+      # The cron and manual paths carry no argument.
+      expect(job_class.new.perform).to be(true)
+      expect(Rails.logger).to have_received(:info).with(/skipped/).exactly(3).times
+    end
   end
 end
