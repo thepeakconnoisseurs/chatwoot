@@ -9,7 +9,8 @@ module Peakwine::EeUnlock
   PLAN_CONFIG_NAME = 'INSTALLATION_PRICING_PLAN'
   QUANTITY_CONFIG_NAME = 'INSTALLATION_PRICING_PLAN_QUANTITY'
   QUANTITY_FLOOR = 100
-  # ALL premium flags (config/features.yml, 18 entries) — without exception.
+  # The 18 locked flags: 17 premium flags plus companies. Premium flags upstream
+  # adds later are deliberately not listed (decision 2026-10-25).
   # channel_voice (user 2026-08-23): flag ON alone cannot receive calls; real
   # calls still need WABA/telephony channel config in the provider dashboard.
   FLAGS = %i[

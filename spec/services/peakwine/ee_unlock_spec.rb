@@ -2,12 +2,24 @@ require 'rails_helper'
 
 RSpec.describe Peakwine::EeUnlock do
   describe 'FLAGS' do
-    it 'equals the premium set of config/features.yml (18 flags incl. channel_voice)' do
-      premium = Featurable::FEATURE_LIST.select { |feature| feature['premium'] }.pluck('name').map(&:to_sym)
+    # 18 locked flags (17 premium plus companies). The premium flags upstream added
+    # after the lock stay out on purpose (decision 2026-10-25); a new one must turn
+    # the second example red so the list is reviewed instead of drifting silently.
+    it 'lists only flags Featurable still defines, channel_voice included' do
+      defined_flags = Featurable::FEATURE_LIST.pluck('name').map(&:to_sym)
 
-      expect(premium.size).to eq(18)
-      expect(described_class::FLAGS).to match_array(premium)
+      expect(described_class::FLAGS).to all(be_in(defined_flags))
       expect(described_class::FLAGS).to include(:channel_voice)
+    end
+
+    it 'keeps exactly the pinned premium flags outside the locked list' do
+      premium = Featurable::FEATURE_LIST.select { |feature| feature['premium'] }.pluck('name').map(&:to_sym)
+      known_outside_flags = %w[
+        audit_log_ip_address auto_translate campaign_analytics captain_mcp_servers
+        company_enrichment conversation_monitors copilot_workflows
+      ].map(&:to_sym)
+
+      expect(premium - described_class::FLAGS).to match_array(known_outside_flags)
     end
   end
 
