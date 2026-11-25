@@ -88,7 +88,7 @@ RSpec.describe ActionCableListener do
       expect(payload_of(contact_broadcast)[:meta][:sender]).to include(phone_number: contact.phone_number, email: contact.email, name: contact.name)
     end
 
-    it 'sends conversation.status_changed masked to agent tokens and raw to the contact token' do
+    it 'enqueues conversation.status_changed masked for agent tokens and raw for the contact token' do
       dispatch(:'conversation.status_changed', conversation: conversation)
 
       expect(payload_of(agent_broadcast)[:meta][:sender][:phone_number]).to eq(masked_phone)
@@ -158,6 +158,40 @@ RSpec.describe ActionCableListener do
       expect(broadcasts.map { |broadcast| broadcast[0][1] }).to all(eq('conversation.created'))
       expect(payload_of(agent_broadcast)[:id]).to eq(conversation.display_id)
       expect(payload_of(contact_broadcast)[:id]).to eq(conversation.display_id)
+    end
+
+    describe 'notification events' do
+      let(:staff_agent) { create(:user, account: account, role: :agent) }
+      let!(:notification) { create(:notification, account: account, user: staff_agent, primary_actor: conversation) }
+
+      before do
+        custom_role = create(:custom_role, account: account, permissions: %w[conversation_manage])
+        staff_agent.account_users.find_by(account_id: account.id).update!(custom_role: custom_role)
+      end
+
+      %i[created updated].each do |kind|
+        it "enqueue notification.#{kind} for a restricted agent with a masked sender and a plain-hash contact_inbox" do
+          acting_account_user = Current.account_user
+          staff_account_user = staff_agent.account_users.find_by(account_id: account.id)
+          expect(Masking::ContactMasker.restricted?(staff_account_user)).to be(true)
+
+          dispatch(:"notification.#{kind}", notification: notification)
+
+          expect(broadcasts.size).to eq(1)
+          staff_broadcast = broadcasts.first
+          expect(tokens_of(staff_broadcast)).to eq([staff_agent.pubsub_token])
+          expect(staff_broadcast[1]).to eq({})
+          primary_actor = payload_of(staff_broadcast)[:notification][:primary_actor]
+          expect(primary_actor[:meta][:sender]).to include(phone_number: masked_phone, email: masked_email, name: masked_phone)
+          expect(primary_actor[:contact_inbox]).to eq(
+            id: conversation.contact_inbox.id,
+            inbox_id: conversation.contact_inbox.inbox_id,
+            contact_id: conversation.contact_inbox.contact_id,
+            source_id: masked_source_id
+          )
+          expect(Current.account_user).to equal(acting_account_user)
+        end
+      end
     end
   end
 

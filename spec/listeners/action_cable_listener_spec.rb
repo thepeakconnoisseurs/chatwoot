@@ -374,7 +374,8 @@ describe ActionCableListener do
       listener.conversation_updated(event)
     end
 
-    it 'sends the raw update to a Client API session, outside the agents job' do
+    # Only the enqueue is asserted: the job rebuilds conversation.updated masked for every member (ActionCableBroadcastJob#refreshed_data).
+    it 'enqueues the raw conversation.updated payload for a Client API session in a job separate from the agents job' do
       api_inbox = create(:inbox, account: account, channel: create(:channel_api, account: account))
       api_conversation = create(:conversation, account: account, inbox: api_inbox)
       allow(ActionCableBroadcastJob).to receive(:perform_later)
