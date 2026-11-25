@@ -46,7 +46,13 @@ const mountComponent = () =>
     },
     global: {
       mocks: {
-        $store: { dispatch: mocks.dispatch },
+        $route: { params: { accountId: '1' } },
+        $store: {
+          dispatch: mocks.dispatch,
+          // ContactForm reads the Vuex getter `accounts/isFeatureEnabledonAccount`
+          // (companies feature); without it the component cannot render.
+          getters: { 'accounts/isFeatureEnabledonAccount': () => () => false },
+        },
       },
     },
   });
