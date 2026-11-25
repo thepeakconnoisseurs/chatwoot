@@ -65,53 +65,114 @@ describe ActionCableListener do
   describe '#message_created' do
     let(:event_name) { :'message.created' }
     let!(:message) do
-      create(:message, message_type: 'outgoing',
+      create(:message, message_type: 'incoming', sender: conversation.contact,
                        account: account, inbox: inbox, conversation: conversation)
     end
     let!(:event) { Events::Base.new(event_name, Time.zone.now, message: message) }
 
-    it 'sends message to account admins and inbox agents masked, and to the contact raw' do
+    it 'sends the masked message to agents, and the raw message with the widget payload to the web widget session' do
       # HACK: to reload conversation inbox members
       expect(conversation.inbox.reload.inbox_members.count).to eq(1)
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
 
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        a_collection_containing_exactly(
-          agent.pubsub_token, admin.pubsub_token
-        ),
+      listener.message_created(event)
+
+      raw_data = message.push_event_data(masked: false).merge(account_id: account.id)
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).twice
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        a_collection_containing_exactly(agent.pubsub_token, admin.pubsub_token),
         'message.created',
         message.push_event_data.merge(account_id: account.id)
       )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [conversation.contact_inbox.pubsub_token],
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [],
         'message.created',
-        message.push_event_data(masked: false).merge(account_id: account.id)
+        raw_data,
+        widget_members: [conversation.contact_inbox.pubsub_token],
+        widget_data: message.widget_push_event_data(raw_data).merge(account_id: account.id)
       )
-      listener.message_created(event)
     end
 
-    it 'sends message to all hmac verified contact inboxes' do
-      # HACK: to reload conversation inbox members
-      expect(conversation.inbox.reload.inbox_members.count).to eq(1)
+    it 'sends the widget payload to all hmac verified contact inboxes' do
       conversation.contact_inbox.update(hmac_verified: true)
       # creating a non verified contact inbox to ensure the events are not sent to it
       create(:contact_inbox, contact: conversation.contact, inbox: inbox)
       verified_contact_inbox = create(:contact_inbox, contact: conversation.contact, inbox: inbox, hmac_verified: true)
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
 
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        a_collection_containing_exactly(
-          agent.pubsub_token, admin.pubsub_token
-        ),
+      listener.message_created(event)
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [],
+        'message.created',
+        anything,
+        widget_members: a_collection_containing_exactly(conversation.contact_inbox.pubsub_token, verified_contact_inbox.pubsub_token),
+        widget_data: anything
+      )
+    end
+
+    it 'sends each verified session the payload of its own inbox' do
+      conversation.contact_inbox.update(hmac_verified: true)
+      api_inbox = create(:inbox, account: account, channel: create(:channel_api, account: account))
+      api_session = create(:contact_inbox, contact: conversation.contact, inbox: api_inbox, hmac_verified: true)
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
+      listener.message_created(event)
+
+      raw_data = message.push_event_data(masked: false).merge(account_id: account.id)
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        a_collection_containing_exactly(agent.pubsub_token, admin.pubsub_token),
         'message.created',
         message.push_event_data.merge(account_id: account.id)
       )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        a_collection_containing_exactly(
-          conversation.contact_inbox.pubsub_token, verified_contact_inbox.pubsub_token
-        ),
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [api_session.pubsub_token],
         'message.created',
-        message.push_event_data(masked: false).merge(account_id: account.id)
+        raw_data,
+        widget_members: [conversation.contact_inbox.pubsub_token],
+        widget_data: message.widget_push_event_data(raw_data).merge(account_id: account.id)
       )
+    end
+
+    it 'skips a verified session whose inbox no longer exists' do
+      conversation.contact_inbox.update(hmac_verified: true)
+      orphan = create(:contact_inbox, contact: conversation.contact, inbox: create(:inbox, account: account), hmac_verified: true)
+      orphan.update_column(:inbox_id, 0) # rubocop:disable Rails/SkipsModelValidations
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
       listener.message_created(event)
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [], 'message.created', anything, widget_members: [conversation.contact_inbox.pubsub_token], widget_data: anything
+      )
+    end
+
+    it 'sends a Client API session the raw message, outside the agents job' do
+      api_inbox = create(:inbox, account: account, channel: create(:channel_api, account: account))
+      api_conversation = create(:conversation, account: account, inbox: api_inbox)
+      api_message = create(:message, message_type: 'incoming', sender: api_conversation.contact,
+                                     account: account, inbox: api_inbox, conversation: api_conversation)
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
+      listener.message_created(Events::Base.new(event_name, Time.zone.now, message: api_message))
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [admin.pubsub_token], 'message.created',
+        api_message.push_event_data.merge(account_id: account.id)
+      )
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [api_conversation.contact_inbox.pubsub_token], 'message.created',
+        api_message.push_event_data(masked: false).merge(account_id: account.id)
+      )
+    end
+
+    it 'does not send a private note to the contact' do
+      note = create(:message, message_type: 'outgoing', private: true, account: account, inbox: inbox, conversation: conversation)
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
+      listener.message_created(Events::Base.new(event_name, Time.zone.now, message: note))
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).once
     end
   end
 
@@ -119,24 +180,27 @@ describe ActionCableListener do
     let(:event_name) { :'conversation.typing_on' }
     let!(:event) { Events::Base.new(event_name, Time.zone.now, conversation: conversation, user: agent, is_private: false) }
 
-    it 'sends the typing event masked to agents and raw to the contact' do
+    it 'sends the masked event to other agents, and the raw event with the widget payload to the contact' do
       # HACK: to reload conversation inbox members
       expect(conversation.inbox.reload.inbox_members.count).to eq(1)
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [admin.pubsub_token],
-        'conversation.typing_on', { conversation: conversation.push_event_data,
-                                    user: agent.push_event_data,
-                                    account_id: account.id,
-                                    is_private: false }
-      )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [conversation.contact_inbox.pubsub_token],
-        'conversation.typing_on', { conversation: conversation.push_event_data(masked: false),
-                                    user: agent.push_event_data,
-                                    account_id: account.id,
-                                    is_private: false }
-      )
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
       listener.conversation_typing_on(event)
+
+      raw_data = { conversation: conversation.push_event_data(masked: false), user: agent.push_event_data, account_id: account.id, is_private: false }
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).twice
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [admin.pubsub_token],
+        'conversation.typing_on',
+        { conversation: conversation.push_event_data, user: agent.push_event_data, account_id: account.id, is_private: false }
+      )
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [],
+        'conversation.typing_on',
+        raw_data,
+        widget_members: [conversation.contact_inbox.pubsub_token],
+        widget_data: raw_data.merge(conversation: conversation.widget_push_event_data)
+      )
     end
   end
 
@@ -144,13 +208,11 @@ describe ActionCableListener do
     let(:event_name) { :'conversation.typing_on' }
     let!(:event) { Events::Base.new(event_name, Time.zone.now, conversation: conversation, user: conversation.contact, is_private: false) }
 
-    it 'sends message to account admins, inbox agents and the contact' do
+    it 'sends the event to account admins and inbox agents only' do
       # HACK: to reload conversation inbox members
       expect(conversation.inbox.reload.inbox_members.count).to eq(1)
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        a_collection_containing_exactly(
-          admin.pubsub_token, agent.pubsub_token
-        ),
+      expect(ActionCableBroadcastJob).to receive(:perform_later).once.with(
+        a_collection_containing_exactly(admin.pubsub_token, agent.pubsub_token),
         'conversation.typing_on', { conversation: conversation.push_event_data,
                                     user: conversation.contact.push_event_data,
                                     account_id: account.id,
@@ -165,25 +227,25 @@ describe ActionCableListener do
     let!(:agent_bot) { create(:agent_bot, account: account) }
     let!(:event) { Events::Base.new(event_name, Time.zone.now, conversation: conversation, user: agent_bot, is_private: false) }
 
-    it 'sends message to account admins, inbox agents and the contact' do
+    it 'sends the event to account admins and inbox agents, and the raw event with the widget payload to the contact' do
       expect(conversation.inbox.reload.inbox_members.count).to eq(1)
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        a_collection_containing_exactly(
-          admin.pubsub_token, agent.pubsub_token
-        ),
-        'conversation.typing_on', { conversation: conversation.push_event_data,
-                                    user: agent_bot.push_event_data,
-                                    account_id: account.id,
-                                    is_private: false }
-      )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [conversation.contact_inbox.pubsub_token],
-        'conversation.typing_on', { conversation: conversation.push_event_data(masked: false),
-                                    user: agent_bot.push_event_data,
-                                    account_id: account.id,
-                                    is_private: false }
-      )
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
       listener.conversation_typing_on(event)
+
+      raw_data = { conversation: conversation.push_event_data(masked: false), user: agent_bot.push_event_data, account_id: account.id, is_private: false }
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        a_collection_containing_exactly(admin.pubsub_token, agent.pubsub_token),
+        'conversation.typing_on',
+        { conversation: conversation.push_event_data, user: agent_bot.push_event_data, account_id: account.id, is_private: false }
+      )
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [],
+        'conversation.typing_on',
+        raw_data,
+        widget_members: [conversation.contact_inbox.pubsub_token],
+        widget_data: raw_data.merge(conversation: conversation.widget_push_event_data)
+      )
     end
   end
 
@@ -191,24 +253,27 @@ describe ActionCableListener do
     let(:event_name) { :'conversation.typing_off' }
     let!(:event) { Events::Base.new(event_name, Time.zone.now, conversation: conversation, user: agent, is_private: false) }
 
-    it 'sends the typing event masked to agents and raw to the contact' do
+    it 'sends the masked event to other agents, and the raw event with the widget payload to the contact' do
       # HACK: to reload conversation inbox members
       expect(conversation.inbox.reload.inbox_members.count).to eq(1)
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [admin.pubsub_token],
-        'conversation.typing_off', { conversation: conversation.push_event_data,
-                                     user: agent.push_event_data,
-                                     account_id: account.id,
-                                     is_private: false }
-      )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [conversation.contact_inbox.pubsub_token],
-        'conversation.typing_off', { conversation: conversation.push_event_data(masked: false),
-                                     user: agent.push_event_data,
-                                     account_id: account.id,
-                                     is_private: false }
-      )
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
       listener.conversation_typing_off(event)
+
+      raw_data = { conversation: conversation.push_event_data(masked: false), user: agent.push_event_data, account_id: account.id, is_private: false }
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).twice
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [admin.pubsub_token],
+        'conversation.typing_off',
+        { conversation: conversation.push_event_data, user: agent.push_event_data, account_id: account.id, is_private: false }
+      )
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [],
+        'conversation.typing_off',
+        raw_data,
+        widget_members: [conversation.contact_inbox.pubsub_token],
+        widget_data: raw_data.merge(conversation: conversation.widget_push_event_data)
+      )
     end
   end
 
@@ -287,36 +352,67 @@ describe ActionCableListener do
       conversation.add_labels(['support'])
     end
 
-    it 'sends update to inbox members' do
+    it 'sends the full conversation with label data to inbox members' do
       expect(conversation.inbox.reload.inbox_members.count).to eq(1)
+      expect(conversation.reload.push_event_data[:labels]).to eq(conversation.labels.pluck(:name))
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
 
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
+      listener.conversation_updated(event)
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
         [agent.pubsub_token, admin.pubsub_token],
         'conversation.updated',
         conversation.push_event_data.merge(account_id: account.id)
       )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [conversation.contact_inbox.pubsub_token],
-        'conversation.updated',
-        conversation.push_event_data(masked: false).merge(account_id: account.id)
+    end
+
+    it 'does not send the update to the web widget session, which has no handler for it' do
+      expect(ActionCableBroadcastJob).to receive(:perform_later).once.with(
+        [agent.pubsub_token, admin.pubsub_token], 'conversation.updated', anything
       )
+
       listener.conversation_updated(event)
     end
 
-    it 'broadcast event with label data' do
-      expect(conversation.reload.push_event_data[:labels]).to eq(conversation.labels.pluck(:name))
+    it 'sends the raw update to a Client API session, outside the agents job' do
+      api_inbox = create(:inbox, account: account, channel: create(:channel_api, account: account))
+      api_conversation = create(:conversation, account: account, inbox: api_inbox)
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
 
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
+      listener.conversation_updated(Events::Base.new(event_name, Time.zone.now, conversation: api_conversation, user: agent, is_private: false))
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [admin.pubsub_token], 'conversation.updated',
+        api_conversation.push_event_data.merge(account_id: account.id)
+      )
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [api_conversation.contact_inbox.pubsub_token], 'conversation.updated',
+        api_conversation.push_event_data(masked: false).merge(account_id: account.id)
+      )
+    end
+  end
+
+  describe '#conversation_status_changed' do
+    let!(:event) { Events::Base.new(:'conversation.status_changed', Time.zone.now, conversation: conversation) }
+
+    it 'sends the masked conversation to agents, and the raw conversation with the widget payload to the web widget session' do
+      allow(ActionCableBroadcastJob).to receive(:perform_later)
+
+      listener.conversation_status_changed(event)
+
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).twice
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
         [agent.pubsub_token, admin.pubsub_token],
-        'conversation.updated',
+        'conversation.status_changed',
         conversation.push_event_data.merge(account_id: account.id)
       )
-      expect(ActionCableBroadcastJob).to receive(:perform_later).with(
-        [conversation.contact_inbox.pubsub_token],
-        'conversation.updated',
-        conversation.push_event_data(masked: false).merge(account_id: account.id)
+      expect(ActionCableBroadcastJob).to have_received(:perform_later).with(
+        [],
+        'conversation.status_changed',
+        conversation.push_event_data(masked: false).merge(account_id: account.id),
+        widget_members: [conversation.contact_inbox.pubsub_token],
+        widget_data: conversation.widget_push_event_data.merge(account_id: account.id)
       )
-      listener.conversation_updated(event)
     end
   end
 
